@@ -1,0 +1,77 @@
+# capacity: 目标数据容量（元素数量）
+# false_positive_rate: 目标误判率 (0.001 = 0.1%)
+# shards: 分片数量
+# replicas_per_shard: 每个分片的副本数（建议 3，保证高可用）
+
+capacity: 1000000000
+false_positive_rate: 0.001
+shards: 3
+replicas_per_shard: 3
+
+# 服务器配置
+server:
+  # gRPC 监听地址
+  grpc_addr: ":50051"
+  # HTTP 监听地址（用于健康检查）
+  http_addr: ":8080"
+  # 节点 ID（K8s 中自动设置）
+  node_id: ""
+  # 分片 ID（K8s 中自动设置）
+  shard_id: 0
+
+# 持久化配置
+persistence:
+  # 启用 WAL
+  wal_enabled: true
+  # WAL 目录
+  wal_dir: "/data/wal"
+  # 单 WAL 文件最大大小 (MB)
+  wal_max_size_mb: 100
+  # 快照目录
+  snapshot_dir: "/data/snapshot"
+  # 快照间隔 (分钟)
+  snapshot_interval_min: 5
+  # 保留的快照数量
+  snapshot_retention: 3
+
+# Raft 配置
+raft:
+  # 选举超时最小值 (ms)
+  election_timeout_min_ms: 150
+  # 选举超时最大值 (ms)
+  election_timeout_max_ms: 300
+  # 心跳间隔 (ms)
+  heartbeat_interval_ms: 50
+  # 安装快照超时 (ms)
+  install_snapshot_timeout_ms: 30000
+  # 日志复制批量大小
+  replication_batch_size: 100
+
+# 性能配置
+performance:
+  # 批量操作最大大小
+  batch_max_size: 1000
+  # WAL 刷盘间隔 (ms)
+  wal_flush_interval_ms: 10
+  # 计数器位数 (4 或 8)
+  counter_bits: 4
+
+# 监控配置
+monitoring:
+  # 启用 Prometheus 指标
+  prometheus_enabled: true
+  # Prometheus 指标路径
+  prometheus_path: "/metrics"
+  # 启用 pprof
+  pprof_enabled: true
+  # pprof 路径
+  pprof_path: "/debug/pprof"
+
+# 日志配置
+logging:
+  # 日志级别 (debug, info, warn, error)
+  level: "info"
+  # 日志格式 (json, console)
+  format: "json"
+  # 日志输出路径 (空表示 stdout)
+  output: ""

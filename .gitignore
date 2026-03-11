@@ -1,0 +1,77 @@
+# Distributed Bloom Filter - .gitignore
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dbf
+dbf.exe
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Build output
+dist/
+build/
+
+# Kubernetes secrets (never commit!)
+*.secret.yaml
+*-secret.yaml
+secrets/
+
+# Local config overrides
+config.local.yaml
+config.*.local.yaml
+
+# Backup files
+*.bak
+*.backup
+
+# Performance test results
+benchstat.txt
+benchmark-results/
+
+# Coverage reports
+coverage.html
+coverage.out
+
+# Documentation build
+docs/_build/
+
+# Docker
+.docker/
+
+# Node (if using any JS tooling)
+node_modules/
+npm-debug.log
+yarn-error.log
