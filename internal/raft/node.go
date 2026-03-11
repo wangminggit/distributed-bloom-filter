@@ -11,9 +11,9 @@ import (
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 
-	"distributed-bloom-filter/pkg/bloom"
-	"distributed-bloom-filter/internal/wal"
-	"distributed-bloom-filter/internal/metadata"
+	"github.com/wangminggit/distributed-bloom-filter/pkg/bloom"
+	"github.com/wangminggit/distributed-bloom-filter/internal/wal"
+	"github.com/wangminggit/distributed-bloom-filter/internal/metadata"
 )
 
 // Node represents a Raft consensus node for the distributed Bloom filter.
@@ -82,12 +82,10 @@ func (n *Node) Start(bootstrap bool) error {
 
 	// Create transport
 	addr := fmt.Sprintf(":%d", n.raftPort)
-	listener, err := net.Listen("tcp", addr)
+	transport, err := raft.NewTCPTransport("tcp", addr, nil, 3, 0, os.Stderr)
 	if err != nil {
-		return fmt.Errorf("failed to create transport listener: %w", err)
+		return fmt.Errorf("failed to create transport: %w", err)
 	}
-
-	transport := raft.NewNetworkTransport(listener, 3, 0, os.Stderr)
 	n.transport = transport
 
 	// Create Raft instance
@@ -103,7 +101,7 @@ func (n *Node) Start(bootstrap bool) error {
 			Servers: []raft.Server{
 				{
 					ID:      config.LocalID,
-					Address: raft.ServerAddress(listener.Addr().String()),
+					Address: raft.ServerAddress(addr),
 				},
 			},
 		}
