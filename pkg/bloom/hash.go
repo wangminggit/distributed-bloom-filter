@@ -65,7 +65,7 @@ func (m *MurmurHash3Provider) Hash(data []byte) uint64 {
 // Returns (h1, h2) where both are in range [0, m).
 func DoubleHash(item []byte, m int) (int, int) {
 	h1 := murmur3.Sum32(item)
-	
+
 	// For h2, we hash the item with a different seed
 	// Using a simple transformation to get a different hash
 	h2Bytes := make([]byte, len(item)+4)
@@ -74,12 +74,12 @@ func DoubleHash(item []byte, m int) (int, int) {
 	h2Bytes[len(item)+1] = 0xAD
 	h2Bytes[len(item)+2] = 0xBE
 	h2Bytes[len(item)+3] = 0xEF
-	
+
 	h2 := murmur3.Sum32(h2Bytes)
-	
+
 	// Ensure h2 is in valid range and coprime to m
 	h2 = 1 + (h2 % uint32(m-1))
-	
+
 	return int(h1 % uint32(m)), int(h2)
 }
 
@@ -87,10 +87,10 @@ func DoubleHash(item []byte, m int) (int, int) {
 func ComputeIndices(item []byte, m, k int) []int {
 	h1, h2 := DoubleHash(item, m)
 	indices := make([]int, k)
-	
+
 	for i := 0; i < k; i++ {
 		indices[i] = (h1 + i*h2) % m
 	}
-	
+
 	return indices
 }

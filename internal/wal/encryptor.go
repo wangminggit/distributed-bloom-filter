@@ -17,8 +17,8 @@ var ErrDecryptionFailed = errors.New("decryption failed")
 
 // Encryptor provides AES-GCM encryption for WAL entries.
 type Encryptor struct {
-	key     []byte
-	cipher  cipher.AEAD
+	key       []byte
+	cipher    cipher.AEAD
 	nonceSize int
 }
 
@@ -30,7 +30,7 @@ func NewEncryptor(key []byte) *Encryptor {
 		// Use a default key for development (NOT SECURE for production!)
 		key = []byte("32-byte-secret-key-for-wal-enc")
 	}
-	
+
 	// Pad or truncate key to valid size
 	switch {
 	case len(key) >= 32:
@@ -45,18 +45,18 @@ func NewEncryptor(key []byte) *Encryptor {
 		copy(padded, key)
 		key = padded
 	}
-	
+
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		// This should never happen with valid key sizes
 		panic(fmt.Sprintf("failed to create cipher: %v", err))
 	}
-	
+
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create GCM: %v", err))
 	}
-	
+
 	return &Encryptor{
 		key:       key,
 		cipher:    gcm,
@@ -72,10 +72,10 @@ func (e *Encryptor) Encrypt(plaintext []byte) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
-	
+
 	// Encrypt
 	ciphertext := e.cipher.Seal(nonce, nonce, plaintext, nil)
-	
+
 	return ciphertext, nil
 }
 
@@ -85,17 +85,17 @@ func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 	if len(ciphertext) < e.nonceSize {
 		return nil, ErrDecryptionFailed
 	}
-	
+
 	// Extract nonce
 	nonce := ciphertext[:e.nonceSize]
 	encrypted := ciphertext[e.nonceSize:]
-	
+
 	// Decrypt
 	plaintext, err := e.cipher.Open(nil, nonce, encrypted, nil)
 	if err != nil {
 		return nil, ErrDecryptionFailed
 	}
-	
+
 	return plaintext, nil
 }
 
@@ -131,22 +131,22 @@ func (e *Encryptor) RotateKey(newKey []byte) (*Encryptor, error) {
 
 // WALRecord represents an encrypted WAL entry.
 type WALRecord struct {
-	Timestamp   int64
-	Operation   string
-	Data        []byte
-	Encrypted   bool
+	Timestamp int64
+	Operation string
+	Data      []byte
+	Encrypted bool
 }
 
 // EncryptRecord encrypts a WAL record.
 func (e *Encryptor) EncryptRecord(record *WALRecord) ([]byte, error) {
 	// Serialize record (in production, use proper serialization like protobuf)
 	plaintext := append([]byte(record.Operation), record.Data...)
-	
+
 	encrypted, err := e.Encrypt(plaintext)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return encrypted, nil
 }
 
@@ -156,13 +156,13 @@ func (e *Encryptor) DecryptRecord(encrypted []byte) (*WALRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Parse record (in production, use proper deserialization)
 	record := &WALRecord{
 		Operation: string(plaintext[:1]),
 		Data:      plaintext[1:],
 		Encrypted: true,
 	}
-	
+
 	return record, nil
 }

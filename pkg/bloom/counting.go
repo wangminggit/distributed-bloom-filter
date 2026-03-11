@@ -8,10 +8,10 @@ import (
 // CountingBloomFilter implements a counting Bloom filter that supports deletions
 // by using counters instead of single bits.
 type CountingBloomFilter struct {
-	m        int            // Number of counters
-	k        int            // Number of hash functions
-	counters []uint8        // Counter array (4 bits per counter is typical, using uint8 for simplicity)
-	mu       sync.RWMutex   // Mutex for thread-safe operations
+	m        int          // Number of counters
+	k        int          // Number of hash functions
+	counters []uint8      // Counter array (4 bits per counter is typical, using uint8 for simplicity)
+	mu       sync.RWMutex // Mutex for thread-safe operations
 }
 
 // NewCountingBloomFilter creates a new counting Bloom filter with the specified

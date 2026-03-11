@@ -12,9 +12,9 @@ import (
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 
-	"github.com/wangminggit/distributed-bloom-filter/pkg/bloom"
-	"github.com/wangminggit/distributed-bloom-filter/internal/wal"
 	"github.com/wangminggit/distributed-bloom-filter/internal/metadata"
+	"github.com/wangminggit/distributed-bloom-filter/internal/wal"
+	"github.com/wangminggit/distributed-bloom-filter/pkg/bloom"
 )
 
 // Node represents a Raft consensus node for the distributed Bloom filter.
@@ -25,20 +25,20 @@ type Node struct {
 	bloomFilter     *bloom.CountingBloomFilter
 	walEncryptor    *wal.Encryptor
 	metadataService *metadata.Service
-	
-	raftNode        *raft.Raft
-	raftStore       *raftboltdb.BoltStore
-	transport       *raft.NetworkTransport
-	
+
+	raftNode  *raft.Raft
+	raftStore *raftboltdb.BoltStore
+	transport *raft.NetworkTransport
+
 	mu sync.RWMutex
 }
 
 // NewNode creates a new Raft node.
-func NewNode(nodeID string, raftPort int, dataDir string, 
+func NewNode(nodeID string, raftPort int, dataDir string,
 	bloomFilter *bloom.CountingBloomFilter,
 	walEncryptor *wal.Encryptor,
 	metadataService *metadata.Service) *Node {
-	
+
 	return &Node{
 		nodeID:          nodeID,
 		raftPort:        raftPort,
@@ -110,12 +110,12 @@ func (n *Node) Start(bootstrap bool) error {
 				},
 			},
 		}
-		
+
 		future := ra.BootstrapCluster(configuration)
 		if err := future.Error(); err != nil {
 			return fmt.Errorf("failed to bootstrap cluster: %w", err)
 		}
-		
+
 		log.Printf("Bootstrapped Raft cluster with node %s", n.nodeID)
 	}
 
@@ -171,7 +171,7 @@ func (n *Node) Remove(item []byte) error {
 func (n *Node) Contains(item []byte) bool {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	
+
 	return n.bloomFilter.Contains(item)
 }
 
@@ -228,11 +228,11 @@ func (n *Node) GetState() map[string]interface{} {
 	defer n.mu.RUnlock()
 
 	state := map[string]interface{}{
-		"node_id":      n.nodeID,
-		"raft_port":    n.raftPort,
-		"is_leader":    n.IsLeader(),
-		"bloom_size":   n.bloomFilter.Size(),
-		"bloom_k":      n.bloomFilter.HashCount(),
+		"node_id":    n.nodeID,
+		"raft_port":  n.raftPort,
+		"is_leader":  n.IsLeader(),
+		"bloom_size": n.bloomFilter.Size(),
+		"bloom_k":    n.bloomFilter.HashCount(),
 	}
 
 	if n.raftNode != nil {
