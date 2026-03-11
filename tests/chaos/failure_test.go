@@ -1,30 +1,24 @@
 package chaos
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
-	"github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb"
-
 	"github.com/wangminggit/distributed-bloom-filter/internal/metadata"
-	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
+	raftnode "github.com/wangminggit/distributed-bloom-filter/internal/raft"
 	"github.com/wangminggit/distributed-bloom-filter/internal/wal"
 	"github.com/wangminggit/distributed-bloom-filter/pkg/bloom"
 )
 
 // TestCluster represents a test Raft cluster
 type TestCluster struct {
-	nodes    []*raft.Node
+	nodes    []*raftnode.Node
 	nodeIDs  []string
 	ports    []int
 	dataDirs []string
@@ -34,7 +28,7 @@ type TestCluster struct {
 // NewTestCluster creates a new test cluster with the specified number of nodes
 func NewTestCluster(numNodes int, basePort int) *TestCluster {
 	cluster := &TestCluster{
-		nodes:    make([]*raft.Node, numNodes),
+		nodes:    make([]*raftnode.Node, numNodes),
 		nodeIDs:  make([]string, numNodes),
 		ports:    make([]int, numNodes),
 		dataDirs: make([]string, numNodes),
@@ -59,14 +53,17 @@ func (c *TestCluster) Start(t *testing.T) error {
 		// Create Bloom filter for this node
 		bloomFilter := bloom.NewCountingBloomFilter(1048576, 7)
 		
-		// Create WAL encryptor
-		walEncryptor := wal.NewWALEncryptor([]byte("test-key-32-bytes-long-for-aes"))
+		// Create WAL encryptor (empty string = random key for testing)
+		walEncryptor, err := wal.NewWALEncryptor("")
+		if err != nil {
+			return fmt.Errorf("failed to create WAL encryptor: %w", err)
+		}
 		
 		// Create metadata service
-		metadataService := metadata.NewService()
+		metadataService := metadata.NewService(c.dataDirs[i])
 		
 		// Create Raft node
-		node := raft.NewNode(c.nodeIDs[i], c.ports[i], c.dataDirs[i], bloomFilter, walEncryptor, metadataService)
+		node := raftnode.NewNode(c.nodeIDs[i], c.ports[i], c.dataDirs[i], bloomFilter, walEncryptor, metadataService)
 		
 		// Start node (bootstrap only the first node)
 		if err := node.Start(i == 0); err != nil {
@@ -79,16 +76,6 @@ func (c *TestCluster) Start(t *testing.T) error {
 
 	// Wait for cluster to stabilize
 	time.Sleep(2 * time.Second)
-	
-	// Add other nodes to the cluster
-	if len(c.nodes) > 1 {
-		leader := c.nodes[0]
-		for i := 1; i < len(c.nodes); i++ {
-			// In a real scenario, we would use Raft's AddVoter API
-			// For this test, we just start them as standalone nodes
-			t.Logf("Node %s joined cluster", c.nodeIDs[i])
-		}
-	}
 
 	return nil
 }
@@ -111,7 +98,7 @@ func (c *TestCluster) Stop() {
 }
 
 // GetLeader returns the current leader node
-func (c *TestCluster) GetLeader() *raft.Node {
+func (c *TestCluster) GetLeader() *raftnode.Node {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -165,10 +152,10 @@ func (c *TestCluster) RestartNode(index int) error {
 
 	// Create new node
 	bloomFilter := bloom.NewCountingBloomFilter(1048576, 7)
-	walEncryptor := wal.NewWALEncryptor([]byte("test-key-32-bytes-long-for-aes"))
-	metadataService := metadata.NewService()
+	walEncryptor, _ := wal.NewWALEncryptor("")
+	metadataService := metadata.NewService(c.dataDirs[index])
 	
-	node := raft.NewNode(c.nodeIDs[index], c.ports[index], c.dataDirs[index], bloomFilter, walEncryptor, metadataService)
+	node := raftnode.NewNode(c.nodeIDs[index], c.ports[index], c.dataDirs[index], bloomFilter, walEncryptor, metadataService)
 	
 	if err := node.Start(false); err != nil {
 		return fmt.Errorf("failed to restart node %s: %w", c.nodeIDs[index], err)
@@ -400,7 +387,6 @@ func TestNetworkPartition(t *testing.T) {
 	t.Log("Pre-partition data written")
 	
 	// Simulate network partition by killing one node
-	// In a real scenario, we would use iptables or chaos-mesh
 	leaderIndex := cluster.GetLeaderIndex()
 	t.Logf("Simulating partition by isolating node%d", leaderIndex+1)
 	
@@ -494,9 +480,9 @@ func TestPodRecovery(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	
 	// Verify data on restarted node
-	c.mu.Lock()
+	cluster.mu.Lock()
 	restartedNode := cluster.nodes[killIndex]
-	c.mu.Unlock()
+	cluster.mu.Unlock()
 	
 	if restartedNode == nil {
 		t.Fatal("Restarted node is nil")
