@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
@@ -82,7 +83,11 @@ func (n *Node) Start(bootstrap bool) error {
 
 	// Create transport
 	addr := fmt.Sprintf(":%d", n.raftPort)
-	transport, err := raft.NewTCPTransport("tcp", addr, nil, 3, 0, os.Stderr)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to resolve TCP address: %w", err)
+	}
+	transport, err := raft.NewTCPTransport("tcp", tcpAddr, 3, 10*time.Second, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("failed to create transport: %w", err)
 	}

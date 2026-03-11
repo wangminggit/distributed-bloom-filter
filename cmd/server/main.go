@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -10,61 +9,55 @@ import (
 
 	"github.com/wangminggit/distributed-bloom-filter/internal/metadata"
 	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
+	"github.com/wangminggit/distributed-bloom-filter/internal/wal"
 	"github.com/wangminggit/distributed-bloom-filter/pkg/bloom"
 )
 
-var (
-	configFile = flag.String("config", "config.yaml", "path to config file")
-	nodeID     = flag.String("node-id", "", "unique node identifier")
-	shardID    = flag.Int("shard-id", 0, "shard ID this node belongs to")
-	mode       = flag.String("mode", "standalone", "running mode: standalone|cluster")
-)
-
 func main() {
+	// Parse command-line flags
+	port := flag.Int("port", 8080, "gRPC server port")
+	raftPort := flag.Int("raft-port", 8081, "Raft consensus port")
+	dataDir := flag.String("data-dir", "./data", "Directory for storing data")
+	nodeID := flag.String("node-id", "node1", "Unique node identifier")
+	k := flag.Int("k", 3, "Number of hash functions for Bloom filter")
+	m := flag.Int("m", 10000, "Size of Bloom filter in bits")
+	bootstrap := flag.Bool("bootstrap", false, "Bootstrap as first node in cluster")
 	flag.Parse()
 
-	log.Printf("Starting Distributed Bloom Filter Server...")
-	log.Printf("Config: %s, NodeID: %s, ShardID: %d, Mode: %s",
-		*configFile, *nodeID, *shardID, *mode)
-
-	// 创建 Counting Bloom Filter
-	// 10 亿数据，0.1% 误判率
-	cbf := bloom.NewCountingBloomFilter(1000000000, 0.001)
-	log.Printf("Created %s", cbf.String())
-
-	// 初始化元数据服务
-	metaService, err := metadata.NewService(*nodeID, *shardID)
-	if err != nil {
-		log.Fatalf("Failed to initialize metadata service: %v", err)
+	// Create data directory if it doesn't exist
+	if err := os.MkdirAll(*dataDir, 0755); err != nil {
+		log.Fatalf("Failed to create data directory: %v", err)
 	}
 
-	// 初始化 Raft 节点
-	raftNode, err := raft.NewNode(*nodeID, *shardID, cbf)
-	if err != nil {
-		log.Fatalf("Failed to initialize Raft node: %v", err)
+	// Initialize WAL encryptor
+	walEncryptor := wal.NewEncryptor([]byte("32-byte-secret-key-for-wal-enc"))
+
+	// Initialize metadata service
+	metadataService := metadata.NewService(*dataDir)
+
+	// Initialize Bloom filter
+	bloomFilter := bloom.NewCountingBloomFilter(*m, *k)
+
+	// Initialize Raft node
+	raftNode := raft.NewNode(*nodeID, *raftPort, *dataDir, bloomFilter, walEncryptor, metadataService)
+
+	// Start Raft node
+	if err := raftNode.Start(*bootstrap); err != nil {
+		log.Fatalf("Failed to start Raft node: %v", err)
 	}
 
-	// 优雅关闭
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// Setup graceful shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	go func() {
-		sig := <-sigChan
-		log.Printf("Received signal %s, shutting down...", sig)
+	log.Printf("Server started on port %d (Raft: %d)", *port, *raftPort)
+	log.Printf("Node '%s' initialized with Bloom filter (m=%d, k=%d)", *nodeID, *m, *k)
 
-		if err := raftNode.Shutdown(); err != nil {
-			log.Printf("Error shutting down Raft node: %v", err)
-		}
+	<-stop
+	log.Println("Shutting down...")
 
-		if err := metaService.Close(); err != nil {
-			log.Printf("Error closing metadata service: %v", err)
-		}
+	// Cleanup
+	raftNode.Shutdown()
 
-		os.Exit(0)
-	}()
-
-	log.Printf("Server started successfully")
-
-	// 保持运行
-	select {}
+	log.Println("Server stopped")
 }
