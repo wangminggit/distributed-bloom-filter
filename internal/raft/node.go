@@ -26,7 +26,7 @@ type Node struct {
 	raftPort        int
 	dataDir         string
 	bloomFilter     *bloom.CountingBloomFilter
-	walEncryptor    *wal.Encryptor
+	walEncryptor    *wal.WALEncryptor
 	metadataService *metadata.Service
 
 	raftNode  *raft.Raft
@@ -45,7 +45,7 @@ type Command struct {
 // NewNode creates a new Raft node.
 func NewNode(nodeID string, raftPort int, dataDir string,
 	bloomFilter *bloom.CountingBloomFilter,
-	walEncryptor *wal.Encryptor,
+	walEncryptor *wal.WALEncryptor,
 	metadataService *metadata.Service) *Node {
 
 	return &Node{

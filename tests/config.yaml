@@ -1,0 +1,75 @@
+# DBF Test Configuration
+
+# Cluster Configuration
+cluster:
+  shards: 6
+  replicas: 3
+  total_nodes: 18
+  
+# Performance Test Configuration
+performance:
+  # Target QPS
+  target_qps: 100000
+  
+  # Test duration
+  duration: 1h
+  
+  # Warmup period
+  warmup: 1m
+  
+  # Concurrent clients
+  concurrent_clients: 100
+  
+  # Request size (bytes)
+  request_size: 64
+  
+  # Acceptance criteria
+  acceptance:
+    max_p99_latency_ms: 5
+    max_p95_latency_ms: 3
+    max_avg_latency_ms: 2
+    max_error_rate: 0.0001
+
+# Chaos Test Configuration
+chaos:
+  # Leader failure test
+  leader_failure:
+    duration: 30s
+    recovery_timeout: 500ms
+    
+  # Network partition test
+  network_partition:
+    duration: 1m
+    partition_type: "leader_isolation"
+    
+  # Pod kill test
+  pod_kill:
+    count: 1
+    interval: 10s
+    
+# Integration Test Configuration
+integration:
+  # Test timeout
+  timeout: 5m
+  
+  # Retry configuration
+  retry:
+    max_attempts: 3
+    delay: 1s
+    
+# Environment
+environment:
+  # Test environment (local, k8s, cloud)
+  type: local
+  
+  # K8s namespace (if applicable)
+  namespace: dbf-test
+  
+  # Prometheus endpoint
+  prometheus_url: "http://localhost:9090"
+  
+# Logging
+logging:
+  level: info
+  format: json
+  output: tests/logs/test.log

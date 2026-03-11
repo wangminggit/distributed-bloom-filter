@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/wangminggit/distributed-bloom-filter/internal/grpc"
 	"github.com/wangminggit/distributed-bloom-filter/internal/metadata"
 	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
 	"github.com/wangminggit/distributed-bloom-filter/internal/wal"
@@ -30,7 +31,10 @@ func main() {
 	}
 
 	// Initialize WAL encryptor
-	walEncryptor := wal.NewEncryptor([]byte("32-byte-secret-key-for-wal-enc"))
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		log.Fatalf("Failed to initialize WAL encryptor: %v", err)
+	}
 
 	// Initialize metadata service
 	metadataService := metadata.NewService(*dataDir)
@@ -46,11 +50,19 @@ func main() {
 		log.Fatalf("Failed to start Raft node: %v", err)
 	}
 
+	// Create and start gRPC server
+	dbfServer := grpc.NewDBFServer(raftNode)
+	go func() {
+		if err := dbfServer.Start(*port); err != nil {
+			log.Fatalf("Failed to start gRPC server: %v", err)
+		}
+	}()
+
 	// Setup graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	log.Printf("Server started on port %d (Raft: %d)", *port, *raftPort)
+	log.Printf("gRPC server started on port %d (Raft: %d)", *port, *raftPort)
 	log.Printf("Node '%s' initialized with Bloom filter (m=%d, k=%d)", *nodeID, *m, *k)
 
 	<-stop
