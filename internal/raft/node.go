@@ -1,7 +1,9 @@
 package raft
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -18,6 +20,7 @@ import (
 )
 
 // Node represents a Raft consensus node for the distributed Bloom filter.
+// It implements the raft.FSM interface for state machine replication.
 type Node struct {
 	nodeID          string
 	raftPort        int
@@ -31,6 +34,12 @@ type Node struct {
 	transport *raft.NetworkTransport
 
 	mu sync.RWMutex
+}
+
+// Command represents a Raft command.
+type Command struct {
+	Command string `json:"command"`
+	Item    []byte `json:"item"`
 }
 
 // NewNode creates a new Raft node.
@@ -81,20 +90,20 @@ func (n *Node) Start(bootstrap bool) error {
 		return fmt.Errorf("failed to create snapshot store: %w", err)
 	}
 
-	// Create transport
-	addr := fmt.Sprintf(":%d", n.raftPort)
-	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+	// Create transport - use localhost for local binding
+	bindAddr := fmt.Sprintf("127.0.0.1:%d", n.raftPort)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", bindAddr)
 	if err != nil {
 		return fmt.Errorf("failed to resolve TCP address: %w", err)
 	}
-	transport, err := raft.NewTCPTransport("tcp", tcpAddr, 3, 10*time.Second, os.Stderr)
+	transport, err := raft.NewTCPTransport(bindAddr, tcpAddr, 3, 10*time.Second, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("failed to create transport: %w", err)
 	}
 	n.transport = transport
 
-	// Create Raft instance
-	ra, err := raft.NewRaft(config, nil, logStore, stableStore, snapshotStore, transport)
+	// Create Raft instance (pass n as the FSM)
+	ra, err := raft.NewRaft(config, n, logStore, stableStore, snapshotStore, transport)
 	if err != nil {
 		return fmt.Errorf("failed to create raft: %w", err)
 	}
@@ -102,11 +111,12 @@ func (n *Node) Start(bootstrap bool) error {
 
 	// Bootstrap if this is the first node
 	if bootstrap {
+		advertiseAddr := fmt.Sprintf("127.0.0.1:%d", n.raftPort)
 		configuration := raft.Configuration{
 			Servers: []raft.Server{
 				{
 					ID:      config.LocalID,
-					Address: raft.ServerAddress(addr),
+					Address: raft.ServerAddress(advertiseAddr),
 				},
 			},
 		}
@@ -130,13 +140,16 @@ func (n *Node) Add(item []byte) error {
 	}
 
 	// Create command
-	cmd := map[string]interface{}{
-		"command": "add",
-		"item":    item,
+	cmd := Command{
+		Command: "add",
+		Item:    item,
 	}
 
-	// Encode command (in production, use proper serialization)
-	data := []byte(fmt.Sprintf("%v", cmd))
+	// Encode command
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %w", err)
+	}
 
 	// Apply through Raft
 	future := n.raftNode.Apply(data, 0)
@@ -153,12 +166,16 @@ func (n *Node) Remove(item []byte) error {
 		return fmt.Errorf("raft node not started")
 	}
 
-	cmd := map[string]interface{}{
-		"command": "remove",
-		"item":    item,
+	cmd := Command{
+		Command: "remove",
+		Item:    item,
 	}
 
-	data := []byte(fmt.Sprintf("%v", cmd))
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %w", err)
+	}
+
 	future := n.raftNode.Apply(data, 0)
 	if err := future.Error(); err != nil {
 		return fmt.Errorf("failed to apply command: %w", err)
@@ -214,12 +231,88 @@ func (n *Node) Shutdown() {
 	log.Printf("Raft node %s shut down", n.nodeID)
 }
 
-// ApplyCommand applies a command to the FSM (called by Raft on leader).
-// This is a skeleton - in production, implement the FSM interface properly.
-func (n *Node) ApplyCommand(command []byte) error {
-	// TODO: Parse and execute command
-	// This would typically be implemented as part of the FSM interface
+// Apply applies a Raft log entry to the FSM (called by Raft on leader).
+// This implements the raft.FSM interface.
+func (n *Node) Apply(log *raft.Log) interface{} {
+	// Parse the command
+	var cmd Command
+	if err := json.Unmarshal(log.Data, &cmd); err != nil {
+		return fmt.Errorf("failed to parse command: %w", err)
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// Execute the command on the Bloom filter
+	switch cmd.Command {
+	case "add":
+		n.bloomFilter.Add(cmd.Item)
+		return nil
+	case "remove":
+		n.bloomFilter.Remove(cmd.Item)
+		return nil
+	default:
+		return fmt.Errorf("unknown command: %s", cmd.Command)
+	}
+}
+
+// Snapshot returns a snapshot of the FSM state.
+// This implements the raft.FSM interface.
+func (n *Node) Snapshot() (raft.FSMSnapshot, error) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	// Create a snapshot of the Bloom filter state
+	bloomData := n.bloomFilter.Serialize()
+
+	return &fsmSnapshot{
+		bloomData: bloomData,
+	}, nil
+}
+
+// Restore restores the FSM state from a snapshot.
+// This implements the raft.FSM interface.
+func (n *Node) Restore(rc io.ReadCloser) error {
+	defer rc.Close()
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// Read the snapshot data
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return fmt.Errorf("failed to read snapshot: %w", err)
+	}
+
+	// Restore the Bloom filter state
+	newFilter, err := bloom.Deserialize(data)
+	if err != nil {
+		return fmt.Errorf("failed to restore bloom filter: %w", err)
+	}
+
+	n.bloomFilter = newFilter
+	log.Printf("Restored FSM state from snapshot (%d bytes)", len(data))
 	return nil
+}
+
+// fsmSnapshot implements raft.FSMSnapshot for the Bloom filter state.
+type fsmSnapshot struct {
+	bloomData []byte
+}
+
+// Persist writes the snapshot data to the given sink.
+func (s *fsmSnapshot) Persist(sink raft.SnapshotSink) error {
+	_, err := sink.Write(s.bloomData)
+	if err != nil {
+		sink.Cancel()
+		return err
+	}
+	return sink.Close()
+}
+
+// Release is called when the snapshot is no longer needed.
+func (s *fsmSnapshot) Release() {
+	// No cleanup needed
 }
 
 // GetState returns the current state of the node.
