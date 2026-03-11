@@ -1,234 +1,271 @@
 package metadata
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	"time"
 )
 
-// Service 元数据服务，基于 K8s ConfigMap + Gossip
+// Service manages metadata for the distributed Bloom filter.
 type Service struct {
-	nodeID    string
-	shardID   int
-	namespace string
-	configMap string
-	client    *kubernetes.Clientset
-	cache     *ClusterState
-	mu        sync.RWMutex
-	ctx       context.Context
-	cancel    context.CancelFunc
+	dataDir string
+	metadata *Metadata
+	mu       sync.RWMutex
 }
 
-// ClusterState 集群状态缓存
-type ClusterState struct {
-	Shards map[int]*ShardInfo `json:"shards"`
-	Nodes  map[string]*NodeInfo `json:"nodes"`
+// Metadata contains all metadata for the Bloom filter service.
+type Metadata struct {
+	NodeID       string            `json:"node_id"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+	Version      string            `json:"version"`
+	ClusterNodes []string          `json:"cluster_nodes"`
+	Config       map[string]interface{} `json:"config"`
+	Stats        *Stats            `json:"stats"`
 }
 
-// ShardInfo 分片信息
-type ShardInfo struct {
-	Leader    string   `json:"leader"`
-	Followers []string `json:"followers"`
+// Stats contains operational statistics.
+type Stats struct {
+	TotalAdds      int64     `json:"total_adds"`
+	TotalRemoves   int64     `json:"total_removes"`
+	TotalQueries   int64     `json:"total_queries"`
+	LastBackup     time.Time `json:"last_backup"`
+	LastCompaction time.Time `json:"last_compaction"`
 }
 
-// NodeInfo 节点信息
-type NodeInfo struct {
-	Status   string `json:"status"`
-	Address  string `json:"address"`
-	ShardID  int    `json:"shard_id"`
-	IsLeader bool   `json:"is_leader"`
-}
-
-// NewService 创建新的元数据服务
-func NewService(nodeID string, shardID int) (*Service, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// 创建 K8s 客户端
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		// 不在集群内运行时，返回错误（开发环境可能需要特殊处理）
-		return nil, fmt.Errorf("failed to load K8s config: %w", err)
+// NewService creates a new metadata service.
+func NewService(dataDir string) *Service {
+	s := &Service{
+		dataDir: dataDir,
+		metadata: &Metadata{
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
+			Version:      "1.0.0",
+			ClusterNodes: make([]string, 0),
+			Config:       make(map[string]interface{}),
+			Stats: &Stats{
+				TotalAdds:    0,
+				TotalRemoves: 0,
+				TotalQueries: 0,
+			},
+		},
 	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to create K8s client: %w", err)
+	
+	// Try to load existing metadata
+	if err := s.Load(); err != nil {
+		// If file doesn't exist, that's fine - we'll create it on first save
+		if !os.IsNotExist(err) {
+			fmt.Printf("Warning: failed to load metadata: %v\n", err)
+		}
 	}
-
-	svc := &Service{
-		nodeID:    nodeID,
-		shardID:   shardID,
-		namespace: "default", // TODO: 从环境变量读取
-		configMap: "dbf-cluster",
-		client:    clientset,
-		cache:     &ClusterState{},
-		ctx:       ctx,
-		cancel:    cancel,
-	}
-
-	// TODO: 启动 Gossip 协议
-	// 使用 HashiCorp Memberlist 实现节点状态同步
-
-	return svc, nil
+	
+	return s
 }
 
-// GetLeader 获取指定分片的 Leader
-func (s *Service) GetLeader(shardID int) (string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	shard, ok := s.cache.Shards[shardID]
-	if !ok {
-		return "", errors.New("shard not found")
-	}
-
-	return shard.Leader, nil
-}
-
-// GetFollowers 获取指定分片的 Followers
-func (s *Service) GetFollowers(shardID int) ([]string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	shard, ok := s.cache.Shards[shardID]
-	if !ok {
-		return nil, errors.New("shard not found")
-	}
-
-	return shard.Followers, nil
-}
-
-// GetNode 获取节点信息
-func (s *Service) GetNode(nodeID string) (*NodeInfo, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	node, ok := s.cache.Nodes[nodeID]
-	if !ok {
-		return nil, errors.New("node not found")
-	}
-
-	return node, nil
-}
-
-// GetAllNodes 获取所有节点
-func (s *Service) GetAllNodes() map[string]*NodeInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	result := make(map[string]*NodeInfo)
-	for k, v := range s.cache.Nodes {
-		result[k] = v
-	}
-	return result
-}
-
-// RegisterNode 注册节点
-func (s *Service) RegisterNode(nodeID string, info *NodeInfo) error {
+// Load loads metadata from disk.
+func (s *Service) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.cache.Nodes[nodeID] = info
-
-	// TODO: 更新 ConfigMap
-	return s.updateConfigMap()
+	
+	metadataPath := filepath.Join(s.dataDir, "metadata.json")
+	
+	data, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return err
+	}
+	
+	var metadata Metadata
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
+	
+	s.metadata = &metadata
+	return nil
 }
 
-// DeregisterNode 注销节点
-func (s *Service) DeregisterNode(nodeID string) error {
+// Save saves metadata to disk.
+func (s *Service) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	delete(s.cache.Nodes, nodeID)
-
-	// TODO: 更新 ConfigMap
-	return s.updateConfigMap()
-}
-
-// updateConfigMap 更新 ConfigMap
-func (s *Service) updateConfigMap() error {
-	// TODO: 实现 ConfigMap 更新逻辑
-	// 1. 序列化 ClusterState 到 JSON
-	// 2. 更新 K8s ConfigMap
-	// 3. 处理并发更新冲突
-
-	data, err := json.Marshal(s.cache)
+	
+	s.metadata.UpdatedAt = time.Now()
+	
+	metadataPath := filepath.Join(s.dataDir, "metadata.json")
+	
+	// Ensure directory exists
+	if err := os.MkdirAll(s.dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+	
+	data, err := json.MarshalIndent(s.metadata, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal cluster state: %w", err)
+		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
-
-	cm, err := s.client.CoreV1().ConfigMaps(s.namespace).Get(
-		s.ctx,
-		s.configMap,
-		metav1.GetOptions{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to get ConfigMap: %w", err)
+	
+	if err := os.WriteFile(metadataPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write metadata: %w", err)
 	}
-
-	if cm.Data == nil {
-		cm.Data = make(map[string]string)
-	}
-	cm.Data["cluster-state.json"] = string(data)
-
-	_, err = s.client.CoreV1().ConfigMaps(s.namespace).Update(
-		s.ctx,
-		cm,
-		metav1.UpdateOptions{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update ConfigMap: %w", err)
-	}
-
+	
 	return nil
 }
 
-// loadFromConfigMap 从 ConfigMap 加载集群状态
-func (s *Service) loadFromConfigMap() error {
-	cm, err := s.client.CoreV1().ConfigMaps(s.namespace).Get(
-		s.ctx,
-		s.configMap,
-		metav1.GetOptions{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to get ConfigMap: %w", err)
-	}
-
-	data, ok := cm.Data["cluster-state.json"]
-	if !ok {
-		return errors.New("cluster state not found in ConfigMap")
-	}
-
-	var state ClusterState
-	if err := json.Unmarshal([]byte(data), &state); err != nil {
-		return fmt.Errorf("failed to unmarshal cluster state: %w", err)
-	}
-
-	s.cache = &state
+// SetNodeID sets the node ID.
+func (s *Service) SetNodeID(nodeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.metadata.NodeID = nodeID
+	s.metadata.UpdatedAt = time.Now()
 	return nil
 }
 
-// Close 关闭元数据服务
-func (s *Service) Close() error {
-	s.cancel()
-	// TODO: 注销当前节点
+// GetNodeID returns the node ID.
+func (s *Service) GetNodeID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	return s.metadata.NodeID
+}
+
+// AddClusterNode adds a node to the cluster.
+func (s *Service) AddClusterNode(nodeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Check if already exists
+	for _, n := range s.metadata.ClusterNodes {
+		if n == nodeID {
+			return nil
+		}
+	}
+	
+	s.metadata.ClusterNodes = append(s.metadata.ClusterNodes, nodeID)
+	s.metadata.UpdatedAt = time.Now()
 	return nil
 }
 
-// StartGossip 启动 Gossip 协议（占位）
-func (s *Service) StartGossip() error {
-	// TODO: 使用 HashiCorp Memberlist 实现
-	// 1. 创建 Memberlist 配置
-	// 2. 加入集群
-	// 3. 监听节点状态变化
-	// 4. 定期同步到 ConfigMap
+// RemoveClusterNode removes a node from the cluster.
+func (s *Service) RemoveClusterNode(nodeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	nodes := make([]string, 0)
+	for _, n := range s.metadata.ClusterNodes {
+		if n != nodeID {
+			nodes = append(nodes, n)
+		}
+	}
+	
+	s.metadata.ClusterNodes = nodes
+	s.metadata.UpdatedAt = time.Now()
 	return nil
+}
+
+// GetClusterNodes returns all cluster nodes.
+func (s *Service) GetClusterNodes() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	nodes := make([]string, len(s.metadata.ClusterNodes))
+	copy(nodes, s.metadata.ClusterNodes)
+	return nodes
+}
+
+// SetConfig sets a configuration value.
+func (s *Service) SetConfig(key string, value interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.metadata.Config[key] = value
+	s.metadata.UpdatedAt = time.Now()
+	return nil
+}
+
+// GetConfig gets a configuration value.
+func (s *Service) GetConfig(key string) (interface{}, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	value, ok := s.metadata.Config[key]
+	return value, ok
+}
+
+// RecordAdd records an add operation in stats.
+func (s *Service) RecordAdd() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.metadata.Stats.TotalAdds++
+}
+
+// RecordRemove records a remove operation in stats.
+func (s *Service) RecordRemove() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.metadata.Stats.TotalRemoves++
+}
+
+// RecordQuery records a query operation in stats.
+func (s *Service) RecordQuery() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.metadata.Stats.TotalQueries++
+}
+
+// GetStats returns a copy of the current stats.
+func (s *Service) GetStats() *Stats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	return &Stats{
+		TotalAdds:      s.metadata.Stats.TotalAdds,
+		TotalRemoves:   s.metadata.Stats.TotalRemoves,
+		TotalQueries:   s.metadata.Stats.TotalQueries,
+		LastBackup:     s.metadata.Stats.LastBackup,
+		LastCompaction: s.metadata.Stats.LastCompaction,
+	}
+}
+
+// SetLastBackup updates the last backup timestamp.
+func (s *Service) SetLastBackup(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.metadata.Stats.LastBackup = t
+}
+
+// SetLastCompaction updates the last compaction timestamp.
+func (s *Service) SetLastCompaction(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.metadata.Stats.LastCompaction = t
+}
+
+// GetMetadata returns a copy of the full metadata.
+func (s *Service) GetMetadata() *Metadata {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	// Return a deep copy
+	metadataCopy := *s.metadata
+	if s.metadata.Stats != nil {
+		statsCopy := *s.metadata.Stats
+		metadataCopy.Stats = &statsCopy
+	}
+	configCopy := make(map[string]interface{})
+	for k, v := range s.metadata.Config {
+		configCopy[k] = v
+	}
+	metadataCopy.Config = configCopy
+	nodesCopy := make([]string, len(s.metadata.ClusterNodes))
+	copy(nodesCopy, s.metadata.ClusterNodes)
+	metadataCopy.ClusterNodes = nodesCopy
+	
+	return &metadataCopy
 }

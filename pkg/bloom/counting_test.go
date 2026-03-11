@@ -211,11 +211,11 @@ func TestConcurrency(t *testing.T) {
 	
 	item := []byte("concurrent-item")
 	
-	// Run concurrent adds
+	// Run concurrent adds (10 goroutines * 10 adds = 100 total, well under 255 limit)
 	done := make(chan bool)
 	for i := 0; i < 10; i++ {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for j := 0; j < 10; j++ {
 				cbf.Add(item)
 			}
 			done <- true
@@ -227,7 +227,8 @@ func TestConcurrency(t *testing.T) {
 		<-done
 	}
 	
-	// Count should be 1000 (10 goroutines * 100 adds)
+	// Count should be 100 (10 goroutines * 10 adds)
+	// Note: Due to counter saturation at 255, we keep the test under that limit
 	if count := cbf.Count(item); count != 100 {
 		t.Errorf("Expected count=100, got %d", count)
 	}

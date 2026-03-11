@@ -1,0 +1,24 @@
+# Crontab 配置示例
+# 编辑方式：crontab -e
+
+# 环境变量
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+
+# DBF 项目定时任务
+
+# 每 2 小时自动同步代码到 GitHub
+0 */2 * * * /home/shequ/.openclaw/workspace/projects/distributed-bloom-filter/scripts/auto-sync.sh >> /tmp/dbf-sync.log 2>&1
+
+# 每天 17:30 提醒提交日报（工作日）
+30 17 * * 1-5 echo "📝 @David 该提交今日日报了！" >> /tmp/dbf-reminder.log
+
+# 每天 18:00 自动发送日报汇总
+0 18 * * * /home/shequ/.openclaw/workspace/projects/distributed-bloom-filter/scripts/daily-report.sh >> /tmp/dbf-daily-report.log 2>&1
+
+# 每周五 17:00 提醒提交周报
+0 17 * * 5 echo "📊 @David 该提交本周周报了！" >> /tmp/dbf-weekly-reminder.log
+
+# 每小时检查 GitHub Actions 状态
+0 * * * * /home/shequ/.openclaw/workspace/projects/distributed-bloom-filter/scripts/check-ci-status.sh >> /tmp/dbf-ci-check.log 2>&1
