@@ -19,7 +19,10 @@ func TestNodeStartAndLeaderElection(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Initialize dependencies
-	walEncryptor := wal.NewEncryptor([]byte("32-byte-secret-key-for-test"))
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		t.Fatalf("Failed to create WAL encryptor: %v", err)
+	}
 	metadataService := metadata.NewService(tmpDir)
 	bloomFilter := bloom.NewCountingBloomFilter(10000, 3)
 
@@ -68,7 +71,10 @@ func TestNodeAddAndContains(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Initialize dependencies
-	walEncryptor := wal.NewEncryptor([]byte("32-byte-secret-key-for-test"))
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		t.Fatalf("Failed to create WAL encryptor: %v", err)
+	}
 	metadataService := metadata.NewService(tmpDir)
 	bloomFilter := bloom.NewCountingBloomFilter(10000, 3)
 
@@ -130,7 +136,10 @@ func TestNodeGracefulShutdown(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Initialize dependencies
-	walEncryptor := wal.NewEncryptor([]byte("32-byte-secret-key-for-test"))
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		t.Fatalf("Failed to create WAL encryptor: %v", err)
+	}
 	metadataService := metadata.NewService(tmpDir)
 	bloomFilter := bloom.NewCountingBloomFilter(10000, 3)
 
@@ -175,7 +184,10 @@ func TestNodeMultipleOperations(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Initialize dependencies
-	walEncryptor := wal.NewEncryptor([]byte("32-byte-secret-key-for-test"))
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		t.Fatalf("Failed to create WAL encryptor: %v", err)
+	}
 	metadataService := metadata.NewService(tmpDir)
 	bloomFilter := bloom.NewCountingBloomFilter(10000, 3)
 
@@ -227,4 +239,72 @@ func TestNodeMultipleOperations(t *testing.T) {
 	}
 
 	t.Logf("Successfully added and verified %d items", len(items))
+}
+
+func TestNodeTLSConfig(t *testing.T) {
+	t.Run("RaftTLSConfigDefaults", func(t *testing.T) {
+		config := &RaftTLSConfig{
+			EnableTLS:  true,
+			MinVersion: 771, // TLS 1.3
+		}
+
+		if config.EnableTLS != true {
+			t.Error("Expected TLS to be enabled")
+		}
+
+		if config.MinVersion != 771 {
+			t.Errorf("Expected TLS 1.3 (771), got %d", config.MinVersion)
+		}
+	})
+
+	t.Run("RaftTLSConfigWithReload", func(t *testing.T) {
+		config := &RaftTLSConfig{
+			EnableTLS:      true,
+			MinVersion:     771,
+			ReloadInterval: 5 * time.Minute,
+		}
+
+		if config.ReloadInterval != 5*time.Minute {
+			t.Errorf("Expected reload interval 5m, got %v", config.ReloadInterval)
+		}
+	})
+}
+
+func TestNodeWithTLSInitialization(t *testing.T) {
+	// Create temporary directory for test data
+	tmpDir, err := os.MkdirTemp("", "raft-tls-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Initialize dependencies
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		t.Fatalf("Failed to create WAL encryptor: %v", err)
+	}
+	metadataService := metadata.NewService(tmpDir)
+	bloomFilter := bloom.NewCountingBloomFilter(10000, 3)
+
+	// Test with TLS disabled (should work)
+	tlsConfig := &RaftTLSConfig{
+		EnableTLS: false,
+	}
+
+	node, err := NewNodeWithTLS("test-node-tls", 18085, tmpDir, bloomFilter, walEncryptor, metadataService, tlsConfig)
+	if err != nil {
+		t.Fatalf("Failed to create node with TLS config: %v", err)
+	}
+
+	if node == nil {
+		t.Fatal("Expected node to be created")
+	}
+
+	// Verify TLS is disabled
+	state := node.GetState()
+	if state["tls_enabled"] != false {
+		t.Error("Expected TLS to be disabled")
+	}
+
+	node.Shutdown()
 }
