@@ -2,10 +2,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/wangminggit/distributed-bloom-filter/internal/grpc"
 	"github.com/wangminggit/distributed-bloom-filter/internal/metadata"
@@ -23,6 +25,16 @@ func main() {
 	k := flag.Int("k", 3, "Number of hash functions for Bloom filter")
 	m := flag.Int("m", 10000, "Size of Bloom filter in bits")
 	bootstrap := flag.Bool("bootstrap", false, "Bootstrap as first node in cluster")
+	
+	// Authentication flags
+	enableMTLS := flag.Bool("enable-mtls", false, "Enable mTLS authentication")
+	caCertPath := flag.String("ca-cert", "", "Path to CA certificate")
+	serverCertPath := flag.String("server-cert", "", "Path to server certificate")
+	serverKeyPath := flag.String("server-key", "", "Path to server private key")
+	enableTokenAuth := flag.Bool("enable-token-auth", false, "Enable JWT token authentication")
+	jwtSecretKey := flag.String("jwt-secret", "", "JWT secret key for token signing")
+	tokenExpiry := flag.Duration("token-expiry", 24*time.Hour, "JWT token expiry duration")
+	
 	flag.Parse()
 
 	// Create data directory if it doesn't exist
@@ -50,10 +62,43 @@ func main() {
 		log.Fatalf("Failed to start Raft node: %v", err)
 	}
 
-	// Create and start gRPC server
-	dbfServer := grpc.NewDBFServer(raftNode)
+	// Create gRPC server with authentication
+	var dbfServer *grpc.DBFServer
+	serverConfig := &grpc.ServerConfig{
+		Port:            *port,
+		EnableMTLS:      *enableMTLS,
+		CACertPath:      *caCertPath,
+		ServerCertPath:  *serverCertPath,
+		ServerKeyPath:   *serverKeyPath,
+		EnableTokenAuth: *enableTokenAuth,
+		JWTSecretKey:    *jwtSecretKey,
+		TokenExpiry:     *tokenExpiry,
+	}
+
+	// Validate authentication configuration
+	if *enableMTLS {
+		if *caCertPath == "" || *serverCertPath == "" || *serverKeyPath == "" {
+			log.Fatal("mTLS enabled but certificate paths not provided. Use --ca-cert, --server-cert, --server-key")
+		}
+		dbfServer, err = grpc.NewDBFServerWithAuth(raftNode, serverConfig)
+		if err != nil {
+			log.Fatalf("Failed to create gRPC server with auth: %v", err)
+		}
+	} else if *enableTokenAuth {
+		if *jwtSecretKey == "" {
+			log.Fatal("Token auth enabled but JWT secret not provided. Use --jwt-secret")
+		}
+		dbfServer, err = grpc.NewDBFServerWithAuth(raftNode, serverConfig)
+		if err != nil {
+			log.Fatalf("Failed to create gRPC server with auth: %v", err)
+		}
+	} else {
+		dbfServer = grpc.NewDBFServer(raftNode)
+	}
+
+	// Start gRPC server
 	go func() {
-		if err := dbfServer.Start(*port); err != nil {
+		if err := dbfServer.StartWithConfig(serverConfig); err != nil {
 			log.Fatalf("Failed to start gRPC server: %v", err)
 		}
 	}()
@@ -62,7 +107,14 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	log.Printf("gRPC server started on port %d (Raft: %d)", *port, *raftPort)
+	authInfo := "authentication disabled"
+	if *enableMTLS {
+		authInfo = "mTLS enabled"
+	} else if *enableTokenAuth {
+		authInfo = fmt.Sprintf("token auth enabled (expiry: %v)", *tokenExpiry)
+	}
+	
+	log.Printf("gRPC server started on port %d (Raft: %d, %s)", *port, *raftPort, authInfo)
 	log.Printf("Node '%s' initialized with Bloom filter (m=%d, k=%d)", *nodeID, *m, *k)
 
 	<-stop
