@@ -19,6 +19,24 @@ server:
   # 分片 ID（K8s 中自动设置）
   shard_id: 0
 
+# 认证配置 (P0-1 gRPC 认证授权)
+auth:
+  # mTLS 双向认证配置
+  enable_mtls: false
+  # CA 证书路径 (用于验证客户端证书)
+  ca_cert_path: "/etc/dbf/certs/ca.crt"
+  # 服务器证书路径
+  server_cert_path: "/etc/dbf/certs/server.crt"
+  # 服务器私钥路径
+  server_key_path: "/etc/dbf/certs/server.key"
+  
+  # JWT Token 认证配置
+  enable_token_auth: false
+  # JWT 密钥 (生产环境应使用强随机密钥，建议 32 字节以上)
+  jwt_secret_key: ""
+  # Token 过期时间 (例如：24h, 7d)
+  token_expiry: "24h"
+
 # 持久化配置
 persistence:
   # 启用 WAL
