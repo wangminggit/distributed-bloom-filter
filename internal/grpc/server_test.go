@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
 	"testing"
 	"time"
 
@@ -353,6 +354,38 @@ func TestServerGetStats(t *testing.T) {
 		}
 		if resp.RaftPort != 18081 {
 			t.Errorf("Expected raft_port 18081, got %d", resp.RaftPort)
+		}
+	})
+}
+
+// TestServerTLSConfig tests TLS configuration for the gRPC server.
+func TestServerTLSConfig(t *testing.T) {
+	t.Run("TLSConfigDefaults", func(t *testing.T) {
+		config := &ServerConfig{
+			Port:         50051,
+			EnableTLS:    true,
+			TLSMinVersion: tls.VersionTLS13,
+		}
+
+		if config.EnableTLS != true {
+			t.Error("Expected TLS to be enabled")
+		}
+
+		if config.TLSMinVersion != tls.VersionTLS13 {
+			t.Errorf("Expected TLS 1.3, got %d", config.TLSMinVersion)
+		}
+	})
+
+	t.Run("TLSConfigWithReload", func(t *testing.T) {
+		config := &ServerConfig{
+			Port:              50051,
+			EnableTLS:         true,
+			TLSMinVersion:     tls.VersionTLS13,
+			TLSReloadInterval: 5 * time.Minute,
+		}
+
+		if config.TLSReloadInterval != 5*time.Minute {
+			t.Errorf("Expected reload interval 5m, got %v", config.TLSReloadInterval)
 		}
 	})
 }

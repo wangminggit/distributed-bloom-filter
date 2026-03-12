@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/wangminggit/distributed-bloom-filter/api/proto"
 	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
+	dbftls "github.com/wangminggit/distributed-bloom-filter/pkg/tls"
 )
 
 // DBFServer implements the gRPC DBFService.
@@ -31,6 +33,14 @@ type ServerConfig struct {
 	EnableTokenAuth bool
 	JWTSecretKey string
 	TokenExpiry  time.Duration
+	
+	// TLS Configuration for transport layer encryption
+	EnableTLS      bool
+	TLSMinVersion  uint16
+	TLSCertPath    string
+	TLSKeyPath     string
+	TLSCAPath      string
+	TLSReloadInterval time.Duration
 }
 
 // NewDBFServer creates a new gRPC server.
@@ -267,9 +277,13 @@ func (s *DBFServer) StartWithConfig(config *ServerConfig) error {
 		if err != nil {
 			return fmt.Errorf("failed to load TLS credentials: %w", err)
 		}
-		lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+	}
+
+	// Create listener with TLS if transport layer TLS is enabled
+	if config.EnableTLS {
+		lis, err = s.createTLSListener(config)
 		if err != nil {
-			return fmt.Errorf("failed to listen: %w", err)
+			return fmt.Errorf("failed to create TLS listener: %w", err)
 		}
 	} else {
 		lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
@@ -281,7 +295,7 @@ func (s *DBFServer) StartWithConfig(config *ServerConfig) error {
 	// Create gRPC server options
 	opts := []grpc.ServerOption{}
 
-	// Add TLS credentials if enabled
+	// Add TLS credentials if mTLS is enabled
 	if creds != nil {
 		opts = append(opts, grpc.Creds(creds))
 	}
@@ -297,11 +311,66 @@ func (s *DBFServer) StartWithConfig(config *ServerConfig) error {
 	grpcServer = grpc.NewServer(opts...)
 	proto.RegisterDBFServiceServer(grpcServer, s)
 
-	log.Printf("gRPC server starting on port %d (mTLS: %v, TokenAuth: %v)", 
-		config.Port, config.EnableMTLS, config.EnableTokenAuth)
+	log.Printf("gRPC server starting on port %d (TLS: %v, mTLS: %v, TokenAuth: %v)", 
+		config.Port, config.EnableTLS, config.EnableMTLS, config.EnableTokenAuth)
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 
 	return nil
+}
+
+// createTLSListener creates a TLS-wrapped listener for transport layer encryption.
+func (s *DBFServer) createTLSListener(config *ServerConfig) (net.Listener, error) {
+	// Build TLS configuration
+	tlsConfig := &dbftls.Config{
+		CertPath:   config.TLSCertPath,
+		KeyPath:    config.TLSKeyPath,
+		CAPath:     config.TLSCAPath,
+		MinVersion: config.TLSMinVersion,
+		ClientAuth: tls.RequireAndVerifyClientCert,
+	}
+
+	// Use default TLS 1.3 if not specified
+	if tlsConfig.MinVersion == 0 {
+		tlsConfig.MinVersion = tls.VersionTLS13
+	}
+
+	// Check if hot reload is needed
+	if config.TLSReloadInterval > 0 {
+		// Use certificate reloader for hot reload support
+		reloader, err := dbftls.NewCertReloader(tlsConfig, config.TLSReloadInterval)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cert reloader: %w", err)
+		}
+
+		tlsConfigForListen, err := reloader.GetTLSConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get TLS config: %w", err)
+		}
+
+		// Create base listener
+		baseLis, err := net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		if err != nil {
+			return nil, fmt.Errorf("failed to listen: %w", err)
+		}
+
+		// Wrap with TLS
+		return tls.NewListener(baseLis, tlsConfigForListen), nil
+	}
+
+	// Simple TLS without hot reload
+	tlsConfigBuilt, err := dbftls.BuildTLSConfig(tlsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build TLS config: %w", err)
+	}
+
+	// Create base listener
+	baseLis, err := net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen: %w", err)
+	}
+
+	// Wrap with TLS using tls.Listen() pattern
+	return tls.NewListener(baseLis, tlsConfigBuilt), nil
 }
