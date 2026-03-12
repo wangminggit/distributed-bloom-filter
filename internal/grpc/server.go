@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/wangminggit/distributed-bloom-filter/api/proto"
 	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
@@ -15,7 +17,20 @@ import (
 // DBFServer implements the gRPC DBFService.
 type DBFServer struct {
 	proto.UnimplementedDBFServiceServer
-	raftNode *raft.Node
+	raftNode       *raft.Node
+	authInterceptor *AuthInterceptor
+}
+
+// ServerConfig holds configuration for the gRPC server.
+type ServerConfig struct {
+	Port         int
+	EnableMTLS   bool
+	CACertPath   string
+	ServerCertPath string
+	ServerKeyPath  string
+	EnableTokenAuth bool
+	JWTSecretKey string
+	TokenExpiry  time.Duration
 }
 
 // NewDBFServer creates a new gRPC server.
@@ -23,6 +38,29 @@ func NewDBFServer(raftNode *raft.Node) *DBFServer {
 	return &DBFServer{
 		raftNode: raftNode,
 	}
+}
+
+// NewDBFServerWithAuth creates a new gRPC server with authentication.
+func NewDBFServerWithAuth(raftNode *raft.Node, config *ServerConfig) (*DBFServer, error) {
+	authConfig := &AuthConfig{
+		EnableMTLS:      config.EnableMTLS,
+		CACertPath:      config.CACertPath,
+		ServerCertPath:  config.ServerCertPath,
+		ServerKeyPath:   config.ServerKeyPath,
+		EnableTokenAuth: config.EnableTokenAuth,
+		JWTSecretKey:    config.JWTSecretKey,
+		TokenExpiry:     config.TokenExpiry,
+	}
+
+	authInterceptor, err := NewAuthInterceptor(authConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth interceptor: %w", err)
+	}
+
+	return &DBFServer{
+		raftNode:        raftNode,
+		authInterceptor: authInterceptor,
+	}, nil
 }
 
 // Add adds an item to the Bloom filter.
@@ -209,15 +247,58 @@ func (s *DBFServer) GetStats(ctx context.Context, req *proto.GetStatsRequest) (*
 
 // Start starts the gRPC server on the specified port.
 func (s *DBFServer) Start(port int) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("failed to listen: %w", err)
+	return s.StartWithConfig(&ServerConfig{Port: port})
+}
+
+// StartWithConfig starts the gRPC server with the specified configuration.
+func (s *DBFServer) StartWithConfig(config *ServerConfig) error {
+	var lis net.Listener
+	var grpcServer *grpc.Server
+	var err error
+
+	// Setup TLS if mTLS is enabled
+	var creds credentials.TransportCredentials
+	if config.EnableMTLS {
+		creds, err = LoadTLSCredentials(&AuthConfig{
+			CACertPath:     config.CACertPath,
+			ServerCertPath: config.ServerCertPath,
+			ServerKeyPath:  config.ServerKeyPath,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to load TLS credentials: %w", err)
+		}
+		lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		if err != nil {
+			return fmt.Errorf("failed to listen: %w", err)
+		}
+	} else {
+		lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		if err != nil {
+			return fmt.Errorf("failed to listen: %w", err)
+		}
 	}
 
-	grpcServer := grpc.NewServer()
+	// Create gRPC server options
+	opts := []grpc.ServerOption{}
+
+	// Add TLS credentials if enabled
+	if creds != nil {
+		opts = append(opts, grpc.Creds(creds))
+	}
+
+	// Add authentication interceptors if enabled
+	if s.authInterceptor != nil {
+		opts = append(opts,
+			grpc.UnaryInterceptor(s.authInterceptor.UnaryInterceptor()),
+			grpc.StreamInterceptor(s.authInterceptor.StreamInterceptor()),
+		)
+	}
+
+	grpcServer = grpc.NewServer(opts...)
 	proto.RegisterDBFServiceServer(grpcServer, s)
 
-	log.Printf("gRPC server starting on port %d", port)
+	log.Printf("gRPC server starting on port %d (mTLS: %v, TokenAuth: %v)", 
+		config.Port, config.EnableMTLS, config.EnableTokenAuth)
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
