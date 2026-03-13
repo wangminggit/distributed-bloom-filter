@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/wangminggit/distributed-bloom-filter/api/proto"
@@ -10,6 +11,7 @@ import (
 
 // mockRaftNode is a mock implementation of raft.RaftNode for testing.
 type mockRaftNode struct {
+	mu          sync.RWMutex
 	isLeader    bool
 	leaderID    string
 	leaderAddr  string
@@ -38,10 +40,26 @@ func newMockRaftNode() *mockRaftNode {
 func (m *mockRaftNode) Start() error                              { return nil }
 func (m *mockRaftNode) Shutdown() error                           { return nil }
 func (m *mockRaftNode) IsLeader() bool                            { return m.isLeader }
-func (m *mockRaftNode) Add(item []byte) error                     { m.items[string(item)] = true; return nil }
-func (m *mockRaftNode) Remove(item []byte) error                  { delete(m.items, string(item)); return nil }
-func (m *mockRaftNode) Contains(item []byte) bool                 { return m.items[string(item)] }
+func (m *mockRaftNode) Add(item []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.items[string(item)] = true
+	return nil
+}
+func (m *mockRaftNode) Remove(item []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.items, string(item))
+	return nil
+}
+func (m *mockRaftNode) Contains(item []byte) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.items[string(item)]
+}
 func (m *mockRaftNode) BatchAdd(items [][]byte) (int, int, []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	success := 0
 	errors := make([]string, len(items))
 	for i, item := range items {
@@ -55,6 +73,8 @@ func (m *mockRaftNode) BatchAdd(items [][]byte) (int, int, []string) {
 	return success, len(items) - success, errors
 }
 func (m *mockRaftNode) BatchContains(items [][]byte) []bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	results := make([]bool, len(items))
 	for i, item := range items {
 		results[i] = m.items[string(item)]
