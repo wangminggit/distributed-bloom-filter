@@ -1,226 +1,143 @@
 package grpc
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/wangminggit/distributed-bloom-filter/api/proto"
 	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
 )
 
-// DBFServer implements the gRPC DBFService.
-type DBFServer struct {
-	proto.UnimplementedDBFServiceServer
-	raftNode *raft.Node
+// ServerConfig holds configuration for the gRPC server.
+type ServerConfig struct {
+	// Port is the port to listen on.
+	Port int
+
+	// TLSCertFile is the path to the TLS certificate file.
+	TLSCertFile string
+
+	// TLSKeyFile is the path to the TLS private key file.
+	TLSKeyFile string
+
+	// EnableTLS enables TLS encryption. If false, the server will use insecure connection.
+	EnableTLS bool
+
+	// APIKeyStore is the store for API key validation.
+	APIKeyStore APIKeyStore
+
+	// RateLimitPerSecond is the maximum number of requests per second.
+	RateLimitPerSecond int
+
+	// RateLimitBurstSize is the maximum burst size for rate limiting.
+	RateLimitBurstSize int
 }
 
-// NewDBFServer creates a new gRPC server.
-func NewDBFServer(raftNode *raft.Node) *DBFServer {
-	return &DBFServer{
-		raftNode: raftNode,
+// GRPCServer wraps the gRPC server and service.
+type GRPCServer struct {
+	service *DBFService
+	server  *grpc.Server
+	config  ServerConfig
+}
+
+// NewGRPCServer creates a new gRPC server.
+func NewGRPCServer(raftNode raft.RaftNode) *GRPCServer {
+	return &GRPCServer{
+		service: NewDBFService(raftNode),
 	}
 }
 
-// Add adds an item to the Bloom filter.
-func (s *DBFServer) Add(ctx context.Context, req *proto.AddRequest) (*proto.AddResponse, error) {
-	if req.Item == nil || len(req.Item) == 0 {
-		return &proto.AddResponse{
-			Success: false,
-			Error:   "item cannot be empty",
-		}, nil
-	}
+// Start starts the gRPC server with the given configuration.
+func (s *GRPCServer) Start(config ServerConfig) error {
+	s.config = config
+	// Create gRPC server options
+	var opts []grpc.ServerOption
 
-	err := s.raftNode.Add(req.Item)
-	if err != nil {
-		return &proto.AddResponse{
-			Success: false,
-			Error:   fmt.Sprintf("failed to add item: %v", err),
-		}, nil
-	}
-
-	return &proto.AddResponse{
-		Success: true,
-		Error:   "",
-	}, nil
-}
-
-// Remove removes an item from the Bloom filter.
-func (s *DBFServer) Remove(ctx context.Context, req *proto.RemoveRequest) (*proto.RemoveResponse, error) {
-	if req.Item == nil || len(req.Item) == 0 {
-		return &proto.RemoveResponse{
-			Success: false,
-			Error:   "item cannot be empty",
-		}, nil
-	}
-
-	err := s.raftNode.Remove(req.Item)
-	if err != nil {
-		return &proto.RemoveResponse{
-			Success: false,
-			Error:   fmt.Sprintf("failed to remove item: %v", err),
-		}, nil
-	}
-
-	return &proto.RemoveResponse{
-		Success: true,
-		Error:   "",
-	}, nil
-}
-
-// Contains checks if an item exists in the Bloom filter.
-func (s *DBFServer) Contains(ctx context.Context, req *proto.ContainsRequest) (*proto.ContainsResponse, error) {
-	if req.Item == nil || len(req.Item) == 0 {
-		return &proto.ContainsResponse{
-			Exists: false,
-			Error:  "item cannot be empty",
-		}, nil
-	}
-
-	exists := s.raftNode.Contains(req.Item)
-	return &proto.ContainsResponse{
-		Exists: exists,
-		Error:  "",
-	}, nil
-}
-
-// BatchAdd adds multiple items to the Bloom filter.
-func (s *DBFServer) BatchAdd(ctx context.Context, req *proto.BatchAddRequest) (*proto.BatchAddResponse, error) {
-	if len(req.Items) == 0 {
-		return &proto.BatchAddResponse{
-			SuccessCount: 0,
-			FailureCount: 0,
-			Errors:       []string{"no items provided"},
-		}, nil
-	}
-
-	successCount := 0
-	failureCount := 0
-	errors := make([]string, len(req.Items))
-
-	for i, item := range req.Items {
-		if item == nil || len(item) == 0 {
-			errors[i] = "item cannot be empty"
-			failureCount++
-			continue
+	// Configure TLS if enabled
+	if config.EnableTLS {
+		if config.TLSCertFile == "" || config.TLSKeyFile == "" {
+			return fmt.Errorf("TLS enabled but certificate or key file not specified")
 		}
 
-		err := s.raftNode.Add(item)
+		creds, err := credentials.NewServerTLSFromFile(config.TLSCertFile, config.TLSKeyFile)
 		if err != nil {
-			errors[i] = fmt.Sprintf("failed to add item: %v", err)
-			failureCount++
-		} else {
-			successCount++
+			return fmt.Errorf("failed to load TLS credentials: %w", err)
 		}
+		opts = append(opts, grpc.Creds(creds))
+		log.Printf("TLS encryption enabled with cert: %s, key: %s", config.TLSCertFile, config.TLSKeyFile)
+	} else {
+		log.Printf("WARNING: TLS is disabled - using insecure connection")
 	}
 
-	return &proto.BatchAddResponse{
-		SuccessCount: int32(successCount),
-		FailureCount: int32(failureCount),
-		Errors:       errors,
-	}, nil
-}
-
-// BatchContains checks if multiple items exist in the Bloom filter.
-func (s *DBFServer) BatchContains(ctx context.Context, req *proto.BatchContainsRequest) (*proto.BatchContainsResponse, error) {
-	if len(req.Items) == 0 {
-		return &proto.BatchContainsResponse{
-			Results: []bool{},
-			Error:   "no items provided",
-		}, nil
+	// Add authentication interceptor if API key store is provided
+	if config.APIKeyStore != nil {
+		authInterceptor := NewAuthInterceptor(config.APIKeyStore)
+		opts = append(opts, grpc.UnaryInterceptor(authInterceptor.UnaryInterceptor()))
+		log.Printf("Authentication interceptor enabled")
 	}
 
-	results := make([]bool, len(req.Items))
-	for i, item := range req.Items {
-		if item == nil || len(item) == 0 {
-			results[i] = false
-		} else {
-			results[i] = s.raftNode.Contains(item)
+	// Add rate limiting interceptor if configured
+	if config.RateLimitPerSecond > 0 {
+		burstSize := config.RateLimitBurstSize
+		if burstSize == 0 {
+			burstSize = defaultBurstSize
 		}
+		rateLimiter := NewRateLimitInterceptor(config.RateLimitPerSecond, burstSize)
+		opts = append(opts, grpc.UnaryInterceptor(rateLimiter.UnaryInterceptor()))
+		opts = append(opts, grpc.StreamInterceptor(rateLimiter.StreamInterceptor()))
+		log.Printf("Rate limiting enabled: %d requests/sec, burst: %d", config.RateLimitPerSecond, burstSize)
 	}
 
-	return &proto.BatchContainsResponse{
-		Results: results,
-		Error:   "",
-	}, nil
-}
+	// Create the gRPC server
+	grpcServer := grpc.NewServer(opts...)
+	s.server = grpcServer
 
-// GetStats returns statistics about the Bloom filter and node.
-func (s *DBFServer) GetStats(ctx context.Context, req *proto.GetStatsRequest) (*proto.GetStatsResponse, error) {
-	state := s.raftNode.GetState()
+	// Register the service
+	proto.RegisterDBFServiceServer(grpcServer, s.service)
 
-	nodeID, ok := state["node_id"].(string)
-	if !ok {
-		nodeID = "unknown"
-	}
-
-	isLeader, ok := state["is_leader"].(bool)
-	if !ok {
-		isLeader = false
-	}
-
-	raftState, ok := state["raft_state"].(string)
-	if !ok {
-		raftState = "unknown"
-	}
-
-	leader, ok := state["leader"].(string)
-	if !ok {
-		leader = ""
-	}
-
-	bloomSize, ok := state["bloom_size"].(int)
-	if !ok {
-		bloomSize = 0
-	}
-
-	bloomK, ok := state["bloom_k"].(int)
-	if !ok {
-		bloomK = 0
-	}
-
-	raftPort, ok := state["raft_port"].(int)
-	if !ok {
-		raftPort = 0
-	}
-
-	// Calculate approximate count from Bloom filter
-	bloomCount := int64(0)
-	if bloomSizeVal, ok := state["bloom_size"].(int); ok && bloomSizeVal > 0 {
-		// This is a simplified estimation; the actual count depends on the filter implementation
-		bloomCount = int64(bloomSizeVal / 8) // Rough estimate
-	}
-
-	return &proto.GetStatsResponse{
-		NodeId:     nodeID,
-		IsLeader:   isLeader,
-		RaftState:  raftState,
-		Leader:     leader,
-		BloomSize:  int64(bloomSize),
-		BloomK:     int32(bloomK),
-		BloomCount: bloomCount,
-		RaftPort:   int32(raftPort),
-		Error:      "",
-	}, nil
-}
-
-// Start starts the gRPC server on the specified port.
-func (s *DBFServer) Start(port int) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	// Create listener
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	grpcServer := grpc.NewServer()
-	proto.RegisterDBFServiceServer(grpcServer, s)
-
-	log.Printf("gRPC server starting on port %d", port)
+	log.Printf("gRPC server starting on port %d (TLS: %v)", config.Port, config.EnableTLS)
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 
+	return nil
+}
+
+// Stop gracefully stops the gRPC server.
+func (s *GRPCServer) Stop() {
+	if s.server != nil {
+		s.server.GracefulStop()
+	}
+}
+
+// StartInsecure starts the gRPC server without TLS (for development only).
+// DEPRECATED: Use Start() with ServerConfig instead.
+func (s *GRPCServer) StartInsecure(port int) error {
+	config := ServerConfig{
+		Port:      port,
+		EnableTLS: false,
+	}
+	return s.Start(config)
+}
+
+// GenerateSelfSignedCert generates a self-signed certificate for development.
+// In production, use certificates from a trusted CA.
+func GenerateSelfSignedCert(certFile, keyFile string) error {
+	// For production, generate certificates using:
+	// openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+	//
+	// This is a placeholder - actual implementation would use crypto/x509
+	// For now, we'll log instructions
+	log.Printf("To generate self-signed certificates for development:")
+	log.Printf("  openssl req -x509 -newkey rsa:4096 -keyout %s -out %s -days 365 -nodes", keyFile, certFile)
 	return nil
 }

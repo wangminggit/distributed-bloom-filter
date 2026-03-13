@@ -2,8 +2,18 @@ package bloom
 
 import (
 	"encoding/binary"
+	"errors"
 	"sync"
 )
+
+// MaxFilterSize 最大过滤器大小限制 (100MB)，防止反序列化时 OOM
+const MaxFilterSize = 100 * 1024 * 1024
+
+// MaxHashFunctions 最大哈希函数数量
+const MaxHashFunctions = 20
+
+// ErrCounterOverflow 计数器溢出错误
+var ErrCounterOverflow = errors.New("counter overflow: maximum value 255 reached")
 
 // CountingBloomFilter implements a counting Bloom filter that supports deletions
 // by using counters instead of single bits.
@@ -25,19 +35,32 @@ func NewCountingBloomFilter(m, k int) *CountingBloomFilter {
 }
 
 // Add adds an item to the Bloom filter.
-func (cbf *CountingBloomFilter) Add(item []byte) {
+// Returns ErrCounterOverflow if any counter has reached its maximum value (255).
+func (cbf *CountingBloomFilter) Add(item []byte) error {
 	cbf.mu.Lock()
 	defer cbf.mu.Unlock()
 
 	indices := getHashIndices(item, cbf.m, cbf.k)
 	for _, idx := range indices {
-		if cbf.counters[idx] < 255 {
-			cbf.counters[idx]++
+		if cbf.counters[idx] >= 255 {
+			return ErrCounterOverflow
 		}
+		cbf.counters[idx]++
 	}
+	return nil
 }
 
 // Remove removes an item from the Bloom filter (decrements counters).
+//
+// ⚠️ SECURITY WARNING: This method can cause false negatives if:
+//   - The same item was never added (malicious removal)
+//   - There are hash collisions with other items
+//
+// For security-critical applications, consider:
+//   - Tracking which items have been added before allowing removal
+//   - Using an allowlist to validate removal requests
+//   - Implementing audit logging for removal operations
+//
 // Note: This can cause false negatives if the same item was never added
 // or if there are hash collisions.
 func (cbf *CountingBloomFilter) Remove(item []byte) {
@@ -117,6 +140,7 @@ func (cbf *CountingBloomFilter) Serialize() []byte {
 }
 
 // Deserialize loads a Bloom filter from a byte representation.
+// Validates data size and parameters to prevent OOM and invalid configurations.
 func Deserialize(data []byte) (*CountingBloomFilter, error) {
 	if len(data) < 8 {
 		return nil, ErrInvalidData
@@ -124,6 +148,16 @@ func Deserialize(data []byte) (*CountingBloomFilter, error) {
 
 	m := int(binary.BigEndian.Uint32(data[0:4]))
 	k := int(binary.BigEndian.Uint32(data[4:8]))
+
+	// P1-1: 边界检查 - 防止恶意数据导致 OOM
+	if m > MaxFilterSize {
+		return nil, ErrInvalidData
+	}
+
+	// P1-1: 边界检查 - 验证哈希函数数量合理性
+	if k < 1 || k > MaxHashFunctions {
+		return nil, ErrInvalidData
+	}
 
 	if len(data) < 8+m {
 		return nil, ErrInvalidData

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,12 +24,15 @@ const (
 	DefaultMaxFiles = 10
 	// KeyCacheDuration 密钥缓存时间 (5 分钟)
 	KeyCacheDuration = 5 * time.Minute
+	// MaxKeyCacheSize 最大密钥缓存数量 (防止长期运行内存增长)
+	MaxKeyCacheSize = 100
 	// FileExtension WAL 文件扩展名
 	FileExtension = ".wal.enc"
 )
 
 // WALEncryptor WAL 加密器
 // 使用 AES-256-GCM 加密模式
+// P1-5 修复：统一使用单一锁 (mu)，避免密钥状态不一致
 type WALEncryptor struct {
 	mu sync.RWMutex
 
@@ -37,10 +41,9 @@ type WALEncryptor struct {
 	// 密钥版本
 	keyVersion uint32
 
-	// 密钥缓存
+	// 密钥缓存（P1-5 修复：不再使用单独的 cacheMu，统一由 mu 保护）
 	keyCache     map[uint32][]byte
 	keyCacheTime time.Time
-	cacheMu      sync.RWMutex
 
 	// K8s Secret 路径 (可选)
 	secretPath string
@@ -154,6 +157,7 @@ func NewWALEncryptor(secretPath string) (*WALEncryptor, error) {
 		e.keyCacheTime = time.Now()
 	} else {
 		// 否则生成随机密钥 (仅用于测试)
+		log.Printf("WARNING: TEST MODE - Using random key, data will be lost on restart")
 		key := make([]byte, 32)
 		if _, err := rand.Read(key); err != nil {
 			return nil, fmt.Errorf("failed to generate random key: %w", err)
@@ -168,9 +172,10 @@ func NewWALEncryptor(secretPath string) (*WALEncryptor, error) {
 }
 
 // RefreshKey 刷新密钥 (检查缓存是否过期)
+// P1-5 修复：统一使用单一锁 (mu)，避免密钥状态不一致
 func (e *WALEncryptor) RefreshKey() error {
-	e.cacheMu.Lock()
-	defer e.cacheMu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	// 检查缓存是否过期
 	if time.Since(e.keyCacheTime) < KeyCacheDuration {
@@ -184,12 +189,11 @@ func (e *WALEncryptor) RefreshKey() error {
 			return err
 		}
 
-		e.mu.Lock()
+		// P1-5 修复：所有密钥相关操作都在同一个锁保护下
 		e.currentKey = key
 		e.keyVersion = version
 		e.keyCache[version] = key
 		e.keyCacheTime = time.Now()
-		e.mu.Unlock()
 	}
 
 	return nil
@@ -203,9 +207,10 @@ func (e *WALEncryptor) GetCurrentKey() ([]byte, uint32) {
 }
 
 // GetKeyByVersion 根据版本获取密钥
+// P1-5 修复：统一使用单一锁 (mu)
 func (e *WALEncryptor) GetKeyByVersion(version uint32) ([]byte, error) {
-	e.cacheMu.RLock()
-	defer e.cacheMu.RUnlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	key, ok := e.keyCache[version]
 	if !ok {
@@ -446,6 +451,7 @@ func (w *WALWriter) openCurrentFile() error {
 }
 
 // Write 写入数据 (自动处理滚动)
+// P1-4 修复：确保锁覆盖整个滚动过程，防止竞态条件导致数据丢失
 func (w *WALWriter) Write(data []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -470,7 +476,9 @@ func (w *WALWriter) Write(data []byte) error {
 	}
 
 	if needRoll {
-		if err := w.rollFile(); err != nil {
+		// P1-4 修复：rollFile 必须在锁保护下执行
+		// 关闭当前文件、创建新文件、清理旧文件都必须是原子的
+		if err := w.rollFileLocked(); err != nil {
 			return err
 		}
 	}
@@ -486,8 +494,16 @@ func (w *WALWriter) Write(data []byte) error {
 	return nil
 }
 
-// rollFile 滚动文件
+// rollFile 滚动文件（公共方法，获取自己的锁）
 func (w *WALWriter) rollFile() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.rollFileLocked()
+}
+
+// rollFileLocked 滚动文件（内部方法，假设调用者已持有锁）
+// P1-4 修复：确保整个滚动过程在锁保护下原子执行
+func (w *WALWriter) rollFileLocked() error {
 	// 关闭当前文件
 	if w.currentFile != nil {
 		if err := w.currentFile.Close(); err != nil {
