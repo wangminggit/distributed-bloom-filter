@@ -25,8 +25,14 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/wangminggit/distributed-bloom-filter/api/proto"
 )
+
+// APIMetadata contains authentication information for API key-based auth.
+type APIMetadata struct {
+	ApiKey    string
+	Timestamp int64
+	Signature string
+}
 
 const (
 	// maxRequestAge is the maximum age of a request before it's considered a replay attack.
@@ -192,7 +198,7 @@ func (a *AuthInterceptor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// Try API key authentication first if enabled
 		if a.apiKeyEnabled {
-			if authReq, ok := req.(interface{ GetAuth() *proto.AuthMetadata }); ok {
+			if authReq, ok := req.(interface{ GetAuth() *APIMetadata }); ok {
 				auth := authReq.GetAuth()
 				if auth != nil && auth.ApiKey != "" {
 					if err := a.validateAPIKeyAuth(ctx, auth, info.FullMethod); err != nil {
@@ -253,7 +259,7 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) error {
 }
 
 // validateAPIKeyAuth validates API key + timestamp + signature authentication.
-func (a *AuthInterceptor) validateAPIKeyAuth(ctx context.Context, auth *proto.AuthMetadata, method string) error {
+func (a *AuthInterceptor) validateAPIKeyAuth(ctx context.Context, auth *APIMetadata, method string) error {
 	// Check if API key is provided
 	if auth.ApiKey == "" {
 		return status.Error(codes.Unauthenticated, "missing API key")
@@ -535,7 +541,7 @@ func GenerateToken(config *AuthConfig, nodeID string, permissions []string) (str
 }
 
 // GenerateAPIKeyToken generates a signed authentication token for API key auth.
-func GenerateAPIKeyToken(apiKey string, secret string, method string) *proto.AuthMetadata {
+func GenerateAPIKeyToken(apiKey string, secret string, method string) *APIMetadata {
 	timestamp := time.Now().Unix()
 
 	// Create message to sign
@@ -546,7 +552,7 @@ func GenerateAPIKeyToken(apiKey string, secret string, method string) *proto.Aut
 	h.Write([]byte(message))
 	signature := base64.StdEncoding.EncodeToString(h.Sum(nil))
 
-	return &proto.AuthMetadata{
+	return &APIMetadata{
 		ApiKey:    apiKey,
 		Timestamp: timestamp,
 		Signature: signature,

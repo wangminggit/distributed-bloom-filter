@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+
 func TestAuthInterceptor_TimestampCleanup(t *testing.T) {
 	t.Run("cleanup removes old timestamps", func(t *testing.T) {
 		config := &AuthConfig{
@@ -81,14 +82,10 @@ func TestAuthInterceptor_TimestampCleanup(t *testing.T) {
 		require.NoError(t, err)
 		defer interceptor.Stop()
 
-		// Temporarily reduce the max size for testing
-		originalMaxSize := maxTimestampMapSize
-		maxTimestampMapSize = 100 // Set low for testing
-		defer func() { maxTimestampMapSize = originalMaxSize }()
-
 		// Add entries exceeding the limit with recent timestamps
+		// Using 150000 entries which exceeds maxTimestampMapSize (100000)
 		now := time.Now().Unix()
-		for i := 0; i < 200; i++ {
+		for i := 0; i < 150000; i++ {
 			key := fmt.Sprintf("test-key-%d:%d", i, now+int64(i))
 			interceptor.seenRequests.Store(key, true)
 		}
@@ -104,8 +101,8 @@ func TestAuthInterceptor_TimestampCleanup(t *testing.T) {
 		})
 
 		// Should have removed approximately 50% (cleanupPercentage)
-		// Expected: around 100 entries remaining (200 * 0.5)
-		assert.LessOrEqual(t, count, 100, "Should enforce size limit")
+		// Expected: around 75000 entries remaining (150000 * 0.5)
+		assert.LessOrEqual(t, count, 100000, "Should enforce size limit")
 		assert.Greater(t, count, 0, "Should have some entries remaining")
 	})
 
@@ -126,47 +123,47 @@ func TestAuthInterceptor_TimestampCleanup(t *testing.T) {
 		// Add very old entries (should be removed by age)
 		veryOldTimestamp := now.Add(-20 * time.Minute).Unix()
 		for i := 0; i < 50; i++ {
-			key := fmt.Sprintf("very-old-%d:%d", i, veryOldTimestamp)
+			key := fmt.Sprintf("a-veryold-%d:%d", i, veryOldTimestamp)
 			interceptor.seenRequests.Store(key, true)
 		}
 
 		// Add moderately old entries (should be removed by age)
 		oldTimestamp := now.Add(-8 * time.Minute).Unix()
 		for i := 0; i < 50; i++ {
-			key := fmt.Sprintf("old-%d:%d", i, oldTimestamp)
+			key := fmt.Sprintf("b-old-%d:%d", i, oldTimestamp)
 			interceptor.seenRequests.Store(key, true)
 		}
 
 		// Add recent entries (should remain)
 		recentTimestamp := now.Add(-2 * time.Minute).Unix()
 		for i := 0; i < 50; i++ {
-			key := fmt.Sprintf("recent-%d:%d", i, recentTimestamp)
+			key := fmt.Sprintf("c-recent-%d:%d", i, recentTimestamp)
 			interceptor.seenRequests.Store(key, true)
 		}
 
 		// Add very new entries (should remain)
 		newTimestamp := now.Unix()
 		for i := 0; i < 50; i++ {
-			key := fmt.Sprintf("new-%d:%d", i, newTimestamp)
+			key := fmt.Sprintf("d-new-%d:%d", i, newTimestamp)
 			interceptor.seenRequests.Store(key, true)
 		}
 
-		// Manually trigger cleanup
+		// Manually trigger cleanup to update counter and remove old entries
 		interceptor.cleanupOldTimestamps()
 
 		// Count entries by category
 		var veryOldCount, oldCount, recentCount, newCount int
 		interceptor.seenRequests.Range(func(key, value interface{}) bool {
 			keyStr := key.(string)
-			if len(keyStr) >= 5 {
-				switch keyStr[:5] {
-				case "very-":
+			if len(keyStr) >= 2 {
+				switch keyStr[:2] {
+				case "a-":
 					veryOldCount++
-				case "old-k":
+				case "b-":
 					oldCount++
-				case "recen":
+				case "c-":
 					recentCount++
-				case "new-k":
+				case "d-":
 					newCount++
 				}
 			}
@@ -196,6 +193,9 @@ func TestAuthInterceptor_TimestampCleanup(t *testing.T) {
 			key := fmt.Sprintf("count-test-%d:%d", i, time.Now().Unix())
 			interceptor.seenRequests.Store(key, true)
 		}
+
+		// Trigger cleanup to update the counter
+		interceptor.cleanupOldTimestamps()
 
 		count := interceptor.GetTimestampCount()
 		assert.Equal(t, int64(100), count, "Timestamp count should match stored entries")
@@ -297,7 +297,7 @@ func TestAuthInterceptor_ConcurrentCleanup(t *testing.T) {
 				case <-done:
 					return
 				default:
-					auth := &proto.AuthMetadata{
+					auth := &APIMetadata{
 						ApiKey:    "test-key",
 						Timestamp: time.Now().Unix(),
 					}
@@ -347,7 +347,7 @@ func TestAuthInterceptor_APIKeyValidation(t *testing.T) {
 		require.NoError(t, err)
 		defer interceptor.Stop()
 
-		auth := &proto.AuthMetadata{
+		auth := &APIMetadata{
 			ApiKey:    "invalid-key",
 			Timestamp: time.Now().Unix(),
 			Signature: "invalid",
@@ -370,7 +370,7 @@ func TestAuthInterceptor_APIKeyValidation(t *testing.T) {
 		require.NoError(t, err)
 		defer interceptor.Stop()
 
-		auth := &proto.AuthMetadata{
+		auth := &APIMetadata{
 			ApiKey:    "test-key",
 			Timestamp: time.Now().Add(-10 * time.Minute).Unix(), // Too old
 			Signature: "invalid",
@@ -393,7 +393,7 @@ func TestAuthInterceptor_APIKeyValidation(t *testing.T) {
 		require.NoError(t, err)
 		defer interceptor.Stop()
 
-		auth := &proto.AuthMetadata{
+		auth := &APIMetadata{
 			ApiKey:    "test-key",
 			Timestamp: time.Now().Unix(),
 			Signature: "invalid-signature",
