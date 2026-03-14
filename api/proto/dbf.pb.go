@@ -21,6 +21,66 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// AuthMetadata contains authentication information for API key-based auth.
+type AuthMetadata struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ApiKey        string                 `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Signature     string                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthMetadata) Reset() {
+	*x = AuthMetadata{}
+	mi := &file_api_proto_dbf_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthMetadata) ProtoMessage() {}
+
+func (x *AuthMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_dbf_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*AuthMetadata) Descriptor() ([]byte, []int) {
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *AuthMetadata) GetApiKey() string {
+	if x != nil {
+		return x.ApiKey
+	}
+	return ""
+}
+
+func (x *AuthMetadata) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *AuthMetadata) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
 // AddRequest is the request message for the Add RPC.
 type AddRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`

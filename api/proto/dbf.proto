@@ -4,6 +4,16 @@ package dbf;
 
 option go_package = "github.com/wangminggit/distributed-bloom-filter/api/proto";
 
+// AuthMetadata contains authentication information for API key-based auth.
+message AuthMetadata {
+  // ApiKey is the API key for authentication.
+  string api_key = 1;
+  // Timestamp is the Unix timestamp of the request.
+  int64 timestamp = 2;
+  // Signature is the HMAC-SHA256 signature.
+  string signature = 3;
+}
+
 // DBFService provides the gRPC API for the Distributed Bloom Filter.
 service DBFService {
   // Add adds an item to the Bloom filter.
