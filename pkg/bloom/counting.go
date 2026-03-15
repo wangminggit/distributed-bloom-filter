@@ -2,8 +2,22 @@ package bloom
 
 import (
 	"encoding/binary"
+	"errors"
+	"hash/crc32"
 	"sync"
 )
+
+// MaxFilterSize 最大过滤器大小限制 (100MB)，防止反序列化时 OOM
+const MaxFilterSize = 100 * 1024 * 1024
+
+// MaxHashFunctions 最大哈希函数数量
+const MaxHashFunctions = 20
+
+// ErrCounterOverflow 计数器溢出错误
+var ErrCounterOverflow = errors.New("counter overflow: maximum value 255 reached")
+
+// ErrChecksumMismatch 校验和不匹配错误，表示数据已损坏
+var ErrChecksumMismatch = errors.New("checksum mismatch: data may be corrupted")
 
 // CountingBloomFilter implements a counting Bloom filter that supports deletions
 // by using counters instead of single bits.
@@ -25,19 +39,32 @@ func NewCountingBloomFilter(m, k int) *CountingBloomFilter {
 }
 
 // Add adds an item to the Bloom filter.
-func (cbf *CountingBloomFilter) Add(item []byte) {
+// Returns ErrCounterOverflow if any counter has reached its maximum value (255).
+func (cbf *CountingBloomFilter) Add(item []byte) error {
 	cbf.mu.Lock()
 	defer cbf.mu.Unlock()
 
 	indices := getHashIndices(item, cbf.m, cbf.k)
 	for _, idx := range indices {
-		if cbf.counters[idx] < 255 {
-			cbf.counters[idx]++
+		if cbf.counters[idx] >= 255 {
+			return ErrCounterOverflow
 		}
+		cbf.counters[idx]++
 	}
+	return nil
 }
 
 // Remove removes an item from the Bloom filter (decrements counters).
+//
+// ⚠️ SECURITY WARNING: This method can cause false negatives if:
+//   - The same item was never added (malicious removal)
+//   - There are hash collisions with other items
+//
+// For security-critical applications, consider:
+//   - Tracking which items have been added before allowing removal
+//   - Using an allowlist to validate removal requests
+//   - Implementing audit logging for removal operations
+//
 // Note: This can cause false negatives if the same item was never added
 // or if there are hash collisions.
 func (cbf *CountingBloomFilter) Remove(item []byte) {
@@ -105,28 +132,61 @@ func (cbf *CountingBloomFilter) HashCount() int {
 }
 
 // Serialize returns a byte representation of the Bloom filter for persistence.
+// Format: [m(4 bytes)][k(4 bytes)][counters(m bytes)][CRC32 checksum(4 bytes)]
 func (cbf *CountingBloomFilter) Serialize() []byte {
 	cbf.mu.RLock()
 	defer cbf.mu.RUnlock()
 
-	data := make([]byte, 8+len(cbf.counters))
+	// Data without checksum: header (8 bytes) + counters
+	dataLen := 8 + len(cbf.counters)
+	data := make([]byte, dataLen+4) // +4 for CRC32 checksum
+	
 	binary.BigEndian.PutUint32(data[0:4], uint32(cbf.m))
 	binary.BigEndian.PutUint32(data[4:8], uint32(cbf.k))
-	copy(data[8:], cbf.counters)
+	copy(data[8:dataLen], cbf.counters)
+	
+	// Calculate CRC32 checksum of the data (excluding checksum itself)
+	checksum := crc32.Checksum(data[:dataLen], crc32.IEEETable)
+	binary.BigEndian.PutUint32(data[dataLen:dataLen+4], checksum)
+	
 	return data
 }
 
 // Deserialize loads a Bloom filter from a byte representation.
+// Validates data size, parameters, and CRC32 checksum to prevent OOM, invalid configurations, and corrupted data.
+// Expected format: [m(4 bytes)][k(4 bytes)][counters(m bytes)][CRC32 checksum(4 bytes)]
 func Deserialize(data []byte) (*CountingBloomFilter, error) {
-	if len(data) < 8 {
+	// Minimum size: header (8) + checksum (4) = 12 bytes
+	if len(data) < 12 {
 		return nil, ErrInvalidData
 	}
 
 	m := int(binary.BigEndian.Uint32(data[0:4]))
 	k := int(binary.BigEndian.Uint32(data[4:8]))
 
-	if len(data) < 8+m {
+	// P1-1: 边界检查 - 防止恶意数据导致 OOM
+	if m > MaxFilterSize {
 		return nil, ErrInvalidData
+	}
+
+	// P1-1: 边界检查 - 验证哈希函数数量合理性
+	if k < 1 || k > MaxHashFunctions {
+		return nil, ErrInvalidData
+	}
+
+	// Expected total size: header (8) + counters (m) + checksum (4)
+	expectedLen := 8 + m + 4
+	if len(data) != expectedLen {
+		return nil, ErrInvalidData
+	}
+
+	// Verify CRC32 checksum before using the data
+	dataWithoutChecksum := data[:expectedLen-4]
+	storedChecksum := binary.BigEndian.Uint32(data[expectedLen-4 : expectedLen])
+	calculatedChecksum := crc32.Checksum(dataWithoutChecksum, crc32.IEEETable)
+	
+	if storedChecksum != calculatedChecksum {
+		return nil, ErrChecksumMismatch
 	}
 
 	cbf := &CountingBloomFilter{
@@ -134,7 +194,7 @@ func Deserialize(data []byte) (*CountingBloomFilter, error) {
 		k:        k,
 		counters: make([]uint8, m),
 	}
-	copy(cbf.counters, data[8:])
+	copy(cbf.counters, data[8:8+m])
 
 	return cbf, nil
 }

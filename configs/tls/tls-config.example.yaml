@@ -1,0 +1,96 @@
+# TLS Configuration Example
+# Copy this file to tls-config.yaml and customize for your environment
+
+# Server TLS Configuration
+server:
+  # Enable TLS encryption
+  enabled: true
+  
+  # Certificate files (relative to project root or absolute paths)
+  cert_file: configs/tls/server-cert.pem
+  key_file: configs/tls/server-key.pem
+  
+  # Minimum TLS version (recommended: TLS 1.2 or higher)
+  min_version: "TLS1.2"
+  
+  # Cipher suites (leave empty for secure defaults)
+  # For TLS 1.3, cipher suites are standardized
+  cipher_suites: []
+  
+  # Client certificate verification (mTLS)
+  client_auth:
+    # Require client certificates
+    required: true
+    
+    # CA certificate(s) to verify client certificates
+    ca_file: configs/tls/ca-cert.pem
+
+# Client TLS Configuration (for gRPC clients)
+client:
+  # Enable TLS
+  enabled: true
+  
+  # CA certificate to verify server certificate
+  ca_file: configs/tls/ca-cert.pem
+  
+  # Server name override (for certificate verification)
+  # Set to the CN or SAN in the server certificate
+  server_name_override: "localhost"
+  
+  # Client certificate (for mTLS)
+  cert_file: configs/tls/client-cert.pem
+  key_file: configs/tls/client-key.pem
+
+# Certificate Management
+cert_management:
+  # Auto-renew certificates before expiration (in days)
+  renew_before_days: 30
+  
+  # Enable automatic certificate rotation
+  auto_rotate: false
+  
+  # Certificate provider (letsencrypt, vault, manual)
+  provider: "manual"
+  
+  # Let's Encrypt configuration (if provider is letsencrypt)
+  letsencrypt:
+    # Email for expiration notifications
+    email: "admin@example.com"
+    
+    # ACME server URL (production or staging)
+    acme_url: "https://acme-v02.api.letsencrypt.org/directory"
+    
+    # Challenge type (http-01 or dns-01)
+    challenge_type: "http-01"
+    
+    # HTTP challenge port
+    http_port: 80
+
+# Security Settings
+security:
+  # Enable OCSP stapling
+  ocsp_stapling: true
+  
+  # Enable certificate transparency
+  certificate_transparency: false
+  
+  # Session ticket lifetime (in seconds)
+  session_ticket_lifetime: 3600
+  
+  # Enable strict cipher suite enforcement
+  strict_ciphers: true
+
+# Monitoring
+monitoring:
+  # Alert on certificate expiration (in days)
+  expiry_alert_days:
+    - 30
+    - 14
+    - 7
+    - 1
+  
+  # Metrics endpoint
+  metrics_enabled: true
+  
+  # Log certificate events
+  log_events: true

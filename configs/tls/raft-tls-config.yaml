@@ -1,0 +1,62 @@
+# Raft TLS Configuration
+# Configuration for TLS-encrypted Raft node-to-node communication
+
+# TLS Settings for Raft Transport
+raft_tls:
+  # Enable TLS encryption for Raft consensus traffic
+  enabled: true
+  
+  # Certificate files (relative to project root or absolute paths)
+  # These certificates are used for mTLS between Raft nodes
+  ca_file: configs/tls/ca-cert.pem
+  cert_file: configs/tls/server-cert.pem
+  key_file: configs/tls/server-key.pem
+  
+  # Minimum TLS version (TLS 1.2 or higher recommended)
+  min_version: "TLS1.2"
+  
+  # Server name for certificate verification
+  # Should match the CN or SAN in the server certificate
+  server_name: "localhost"
+  
+  # Insecure skip verify (development only - NEVER use in production)
+  # When false, certificates are strictly validated
+  insecure_skip_verify: false
+
+# mTLS Settings (Mutual TLS Authentication)
+mtls:
+  # Require client certificates for all Raft node connections
+  required: true
+  
+  # Client certificate files (for outbound connections)
+  client_cert_file: configs/tls/client-cert.pem
+  client_key_file: configs/tls/client-key.pem
+
+# Certificate Validation
+validation:
+  # Verify certificate hostname/IP matches the server address
+  verify_host: true
+  
+  # Verify certificate is signed by trusted CA
+  verify_ca: true
+  
+  # Check certificate revocation (OCSP/CRL)
+  check_revocation: false
+
+# Connection Settings
+connection:
+  # TLS handshake timeout
+  handshake_timeout: 10s
+  
+  # Connection timeout
+  connect_timeout: 10s
+  
+  # Keep-alive period
+  keep_alive: 30s
+
+# Production Notes:
+# 1. Replace self-signed certificates with CA-signed certificates
+# 2. Use certificate management (cert-manager, Vault) for auto-renewal
+# 3. Store private keys in secure secret management
+# 4. Enable certificate expiration monitoring
+# 5. Set up alerts for certificates expiring within 30 days

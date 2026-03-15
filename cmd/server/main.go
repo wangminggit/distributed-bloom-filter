@@ -23,6 +23,14 @@ func main() {
 	k := flag.Int("k", 3, "Number of hash functions for Bloom filter")
 	m := flag.Int("m", 10000, "Size of Bloom filter in bits")
 	bootstrap := flag.Bool("bootstrap", false, "Bootstrap as first node in cluster")
+	_ = bootstrap // Reserved for future multi-node cluster support
+	
+	// Security flags
+	enableTLS := flag.Bool("enable-tls", false, "Enable TLS encryption")
+	tlsCertFile := flag.String("tls-cert", "", "Path to TLS certificate file")
+	tlsKeyFile := flag.String("tls-key", "", "Path to TLS private key file")
+	apiKey := flag.String("api-key", "", "API key for authentication (if provided, enables auth)")
+	rateLimit := flag.Int("rate-limit", 100, "Rate limit (requests per second)")
 	flag.Parse()
 
 	// Create data directory if it doesn't exist
@@ -43,17 +51,47 @@ func main() {
 	bloomFilter := bloom.NewCountingBloomFilter(*m, *k)
 
 	// Initialize Raft node
-	raftNode := raft.NewNode(*nodeID, *raftPort, *dataDir, bloomFilter, walEncryptor, metadataService)
+	raftNode, err := raft.NewNodeWithDefaults(*nodeID, *raftPort, *dataDir, bloomFilter, walEncryptor, metadataService)
+	if err != nil {
+		log.Fatalf("Failed to create Raft node: %v", err)
+	}
 
 	// Start Raft node
-	if err := raftNode.Start(*bootstrap); err != nil {
+	if err := raftNode.Start(); err != nil {
 		log.Fatalf("Failed to start Raft node: %v", err)
 	}
 
 	// Create and start gRPC server
-	dbfServer := grpc.NewDBFServer(raftNode)
+	grpcServer := grpc.NewGRPCServer(raftNode)
+	
+	// Setup server configuration with security features
+	config := grpc.ServerConfig{
+		Port:               *port,
+		EnableTLS:          *enableTLS,
+		TLSCertFile:        *tlsCertFile,
+		TLSKeyFile:         *tlsKeyFile,
+		RateLimitPerSecond: *rateLimit,
+		RateLimitBurstSize: *rateLimit * 2,
+	}
+	
+	// Setup API key authentication if provided
+	if *apiKey != "" {
+		keyStore := grpc.NewMemoryAPIKeyStore()
+		// In production, use a secure secret, not a hardcoded one
+		keyStore.AddKey(*apiKey, "secure-secret-key-change-in-production")
+		config.APIKeyStore = keyStore
+		log.Printf("Authentication enabled with API key")
+	}
+	
+	if *enableTLS {
+		if *tlsCertFile == "" || *tlsKeyFile == "" {
+			log.Fatalf("TLS enabled but certificate or key file not specified")
+		}
+		log.Printf("TLS encryption enabled with cert: %s, key: %s", *tlsCertFile, *tlsKeyFile)
+	}
+	
 	go func() {
-		if err := dbfServer.Start(*port); err != nil {
+		if err := grpcServer.Start(config); err != nil {
 			log.Fatalf("Failed to start gRPC server: %v", err)
 		}
 	}()
@@ -69,6 +107,7 @@ func main() {
 	log.Println("Shutting down...")
 
 	// Cleanup
+	grpcServer.Stop()
 	raftNode.Shutdown()
 
 	log.Println("Server stopped")

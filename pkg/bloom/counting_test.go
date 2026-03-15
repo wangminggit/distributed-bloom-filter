@@ -1,6 +1,7 @@
 package bloom
 
 import (
+	"encoding/binary"
 	"testing"
 )
 
@@ -31,7 +32,9 @@ func TestAddAndContains(t *testing.T) {
 	}
 
 	// Add the item
-	cbf.Add(item)
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
 
 	// Item should now be present
 	if !cbf.Contains(item) {
@@ -45,8 +48,12 @@ func TestRemove(t *testing.T) {
 	item := []byte("test-item")
 
 	// Add the item twice
-	cbf.Add(item)
-	cbf.Add(item)
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
 
 	// Count should be 2
 	if count := cbf.Count(item); count != 2 {
@@ -77,7 +84,9 @@ func TestCount(t *testing.T) {
 
 	// Add the item 5 times
 	for i := 0; i < 5; i++ {
-		cbf.Add(item)
+		if err := cbf.Add(item); err != nil {
+			t.Errorf("Add failed: %v", err)
+		}
 	}
 
 	// Count should be 5
@@ -90,8 +99,12 @@ func TestReset(t *testing.T) {
 	cbf := NewCountingBloomFilter(1000, 5)
 
 	item := []byte("test-item")
-	cbf.Add(item)
-	cbf.Add(item)
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
 
 	if !cbf.Contains(item) {
 		t.Error("Item should be present before reset")
@@ -112,9 +125,15 @@ func TestSerializeDeserialize(t *testing.T) {
 	cbf := NewCountingBloomFilter(1000, 5)
 
 	item := []byte("test-item")
-	cbf.Add(item)
-	cbf.Add(item)
-	cbf.Add(item)
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
 
 	// Serialize
 	data := cbf.Serialize()
@@ -180,7 +199,9 @@ func TestMultipleItems(t *testing.T) {
 
 	// Add all items
 	for _, item := range items {
-		cbf.Add(item)
+		if err := cbf.Add(item); err != nil {
+			t.Errorf("Add failed: %v", err)
+		}
 	}
 
 	// All items should be present
@@ -216,7 +237,12 @@ func TestConcurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			for j := 0; j < 10; j++ {
-				cbf.Add(item)
+				if err := cbf.Add(item); err != nil {
+					// Ignore overflow errors in concurrency test
+					if err != ErrCounterOverflow {
+						t.Errorf("Add failed: %v", err)
+					}
+				}
 			}
 			done <- true
 		}()
@@ -258,5 +284,126 @@ func TestHashIndices(t *testing.T) {
 		if indices[i] != indices2[i] {
 			t.Errorf("Indices not deterministic: %v vs %v", indices, indices2)
 		}
+	}
+}
+
+// TestDeserialize_ChecksumVerification tests that corrupted data is detected via CRC32 checksum verification.
+func TestDeserialize_ChecksumVerification(t *testing.T) {
+	// Create a valid Bloom filter and serialize it
+	cbf := NewCountingBloomFilter(1000, 5)
+	item := []byte("test-item")
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
+
+	data := cbf.Serialize()
+
+	// Test 1: Corrupt a byte in the counter data (early position)
+	corruptedData := make([]byte, len(data))
+	copy(corruptedData, data)
+	corruptedData[10] ^= 0xFF // Flip bits in counter data
+
+	_, err := Deserialize(corruptedData)
+	if err != ErrChecksumMismatch {
+		t.Errorf("Expected ErrChecksumMismatch for corrupted counter data, got: %v", err)
+	}
+
+	// Test 2: Corrupt a byte in the counter region (later position)
+	corruptedData2 := make([]byte, len(data))
+	copy(corruptedData2, data)
+	corruptedData2[500] ^= 0xFF // Flip bits in counter data at different position
+
+	_, err = Deserialize(corruptedData2)
+	if err != ErrChecksumMismatch {
+		t.Errorf("Expected ErrChecksumMismatch for corrupted counter data (position 500), got: %v", err)
+	}
+
+	// Test 3: Corrupt the checksum itself
+	corruptedData3 := make([]byte, len(data))
+	copy(corruptedData3, data)
+	corruptedData3[len(data)-1] ^= 0xFF // Flip bits in checksum
+
+	_, err = Deserialize(corruptedData3)
+	if err != ErrChecksumMismatch {
+		t.Errorf("Expected ErrChecksumMismatch for corrupted checksum, got: %v", err)
+	}
+
+	// Test 4: Truncate data (remove last byte of checksum)
+	truncatedData := data[:len(data)-1]
+	_, err = Deserialize(truncatedData)
+	if err != ErrInvalidData {
+		t.Errorf("Expected ErrInvalidData for truncated data, got: %v", err)
+	}
+
+	// Test 5: Valid data should still work
+	cbf2, err := Deserialize(data)
+	if err != nil {
+		t.Fatalf("Failed to deserialize valid data: %v", err)
+	}
+	if !cbf2.Contains(item) {
+		t.Error("Deserialized filter should contain the item")
+	}
+}
+
+// TestCounterOverflow tests P1-2: Bloom 计数器溢出处理
+func TestCounterOverflow(t *testing.T) {
+	cbf := NewCountingBloomFilter(1000, 5)
+
+	item := []byte("overflow-test")
+
+	// Add 255 times (should succeed)
+	for i := 0; i < 255; i++ {
+		if err := cbf.Add(item); err != nil {
+			t.Errorf("Add failed at iteration %d: %v", i, err)
+		}
+	}
+
+	// 256th add should fail with ErrCounterOverflow
+	if err := cbf.Add(item); err != ErrCounterOverflow {
+		t.Errorf("Expected ErrCounterOverflow on 256th add, got: %v", err)
+	}
+
+	// Count should still be 255
+	if count := cbf.Count(item); count != 255 {
+		t.Errorf("Expected count=255, got %d", count)
+	}
+}
+
+// TestDeserializeMaxFilterSize tests P1-1: 反序列化边界检查 - 过滤器大小
+func TestDeserializeMaxFilterSize(t *testing.T) {
+	// Create data with size > MaxFilterSize
+	data := make([]byte, 8)
+	binary.BigEndian.PutUint32(data[0:4], uint32(MaxFilterSize+1)) // m > 100MB
+	binary.BigEndian.PutUint32(data[4:8], 5)                       // k = 5
+
+	_, err := Deserialize(data)
+	if err != ErrInvalidData {
+		t.Errorf("Expected ErrInvalidData for oversized filter, got: %v", err)
+	}
+}
+
+// TestDeserializeInvalidK tests P1-1: 反序列化边界检查 - 哈希函数数量
+func TestDeserializeInvalidK(t *testing.T) {
+	tests := []struct {
+		name string
+		k    int
+	}{
+		{"k=0", 0},
+		{"k=-1", -1},
+		{"k=21", 21},
+		{"k=100", 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := make([]byte, 8)
+			binary.BigEndian.PutUint32(data[0:4], 1000)          // m = 1000
+			binary.BigEndian.PutUint32(data[4:8], uint32(tt.k)) // invalid k
+
+			_, err := Deserialize(data)
+			if err != ErrInvalidData {
+				t.Errorf("Expected ErrInvalidData for %s, got: %v", tt.name, err)
+			}
+		})
 	}
 }
