@@ -124,6 +124,51 @@ rpc Delete(DeleteRequest) returns (DeleteResponse);
 rpc Contains(ContainsRequest) returns (ContainsResponse);
 ```
 
+## Java 示例
+
+### Maven 依赖
+
+```xml
+<dependency>
+    <groupId>io.grpc</groupId>
+    <artifactId>grpc-netty-shaded</artifactId>
+    <version>1.60.0</version>
+</dependency>
+<dependency>
+    <groupId>io.grpc</groupId>
+    <artifactId>grpc-protobuf</artifactId>
+    <version>1.60.0</version>
+</dependency>
+<dependency>
+    <groupId>io.grpc</groupId>
+    <artifactId>grpc-stub</artifactId>
+    <version>1.60.0</version>
+</dependency>
+```
+
+### 快速开始
+
+```java
+import com.dbf.DBFClient;
+
+public class Main {
+    public static void main(String[] args) {
+        DBFClient client = new DBFClient("localhost", 50051);
+        
+        // Add 操作
+        client.add("user:12345");
+        
+        // Contains 操作
+        boolean exists = client.contains("user:12345");
+        System.out.println("Exists: " + exists);
+        
+        client.close();
+    }
+}
+```
+
+详细示例请查看 [examples/java/README.md](examples/java/README.md)
+
 ## 部署
 
 ### Docker

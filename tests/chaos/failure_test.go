@@ -49,11 +49,36 @@ func (c *TestCluster) Start(t *testing.T) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for i := 0; i < len(c.nodes); i++ {
+	// Start bootstrap node first
+	t.Logf("Starting bootstrap node %s on port %d", c.nodeIDs[0], c.ports[0])
+	
+	// Create Bloom filter for bootstrap node
+	bloomFilter := bloom.NewCountingBloomFilter(1048576, 7)
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		return fmt.Errorf("failed to create WAL encryptor: %w", err)
+	}
+	metadataService := metadata.NewService(c.dataDirs[0])
+	
+	node := raftnode.NewNode(c.nodeIDs[0], c.ports[0], c.dataDirs[0], bloomFilter, walEncryptor, metadataService)
+	
+	if err := node.Start(true); err != nil {
+		return fmt.Errorf("failed to start bootstrap node %s: %w", c.nodeIDs[0], err)
+	}
+	
+	c.nodes[0] = node
+	
+	// Wait for bootstrap node to become leader
+	time.Sleep(500 * time.Millisecond)
+	
+	// Start remaining nodes and add them to the cluster
+	for i := 1; i < len(c.nodes); i++ {
+		t.Logf("Starting node %s on port %d", c.nodeIDs[i], c.ports[i])
+		
 		// Create Bloom filter for this node
 		bloomFilter := bloom.NewCountingBloomFilter(1048576, 7)
 		
-		// Create WAL encryptor (empty string = random key for testing)
+		// Create WAL encryptor
 		walEncryptor, err := wal.NewWALEncryptor("")
 		if err != nil {
 			return fmt.Errorf("failed to create WAL encryptor: %w", err)
@@ -65,17 +90,29 @@ func (c *TestCluster) Start(t *testing.T) error {
 		// Create Raft node
 		node := raftnode.NewNode(c.nodeIDs[i], c.ports[i], c.dataDirs[i], bloomFilter, walEncryptor, metadataService)
 		
-		// Start node (bootstrap only the first node)
-		if err := node.Start(i == 0); err != nil {
+		// Start node (not bootstrap)
+		if err := node.Start(false); err != nil {
 			return fmt.Errorf("failed to start node %s: %w", c.nodeIDs[i], err)
 		}
 		
 		c.nodes[i] = node
+		
+		// Wait a bit for node to initialize
+		time.Sleep(100 * time.Millisecond)
+		
+		// Add this node to the cluster via the leader
+		peerAddr := fmt.Sprintf("127.0.0.1:%d", c.ports[i])
+		if err := c.nodes[0].AddPeer(c.nodeIDs[i], peerAddr); err != nil {
+			t.Logf("Warning: failed to add peer %s: %v", c.nodeIDs[i], err)
+		} else {
+			t.Logf("Added node %s to cluster", c.nodeIDs[i])
+		}
+		
 		t.Logf("Started node %s on port %d", c.nodeIDs[i], c.ports[i])
 	}
 
-	// Wait for cluster to stabilize
-	time.Sleep(2 * time.Second)
+	// Wait for cluster to stabilize and data to replicate
+	time.Sleep(1 * time.Second)
 
 	return nil
 }
@@ -162,6 +199,27 @@ func (c *TestCluster) RestartNode(index int) error {
 	}
 
 	c.nodes[index] = node
+	
+	// Find the current leader to re-add this node to the cluster
+	var leader *raftnode.Node
+	for i, n := range c.nodes {
+		if n != nil && n.IsLeader() {
+			leader = n
+			log.Printf("Leader for rejoin is node %d", i)
+			break
+		}
+	}
+	
+	// If we have a leader, try to re-add this node
+	if leader != nil {
+		peerAddr := fmt.Sprintf("127.0.0.1:%d", c.ports[index])
+		if err := leader.AddPeer(c.nodeIDs[index], peerAddr); err != nil {
+			log.Printf("Warning: failed to re-add peer %s: %v", c.nodeIDs[index], err)
+		} else {
+			log.Printf("Re-added node %s to cluster", c.nodeIDs[index])
+		}
+	}
+	
 	log.Printf("Restarted node %s", c.nodeIDs[index])
 	return nil
 }
@@ -248,6 +306,9 @@ func TestLeaderFailure(t *testing.T) {
 		t.Fatalf("Failed to write test data: %v", err)
 	}
 	t.Log("Test data written successfully")
+	
+	// Wait for data to replicate to all followers
+	time.Sleep(500 * time.Millisecond)
 	
 	// Kill the leader
 	t.Log("Killing leader node...")
@@ -344,6 +405,9 @@ func TestFollowerFailure(t *testing.T) {
 	} else {
 		t.Log("✅ Service continues after follower death - PASS")
 	}
+	
+	// Wait for replication to complete
+	time.Sleep(300 * time.Millisecond)
 	
 	// Verify data on remaining nodes
 	allData := append(testData, moreData...)
@@ -564,6 +628,9 @@ func TestConcurrentFailures(t *testing.T) {
 	} else {
 		t.Log("✅ Service survives concurrent failures - PASS")
 	}
+	
+	// Wait for replication to complete
+	time.Sleep(300 * time.Millisecond)
 	
 	// Verify data integrity
 	allData := append(testData, moreData...)

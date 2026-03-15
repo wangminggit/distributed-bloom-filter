@@ -60,12 +60,27 @@ func NewNode(nodeID string, raftPort int, dataDir string,
 
 // Start initializes and starts the Raft node.
 func (n *Node) Start(bootstrap bool) error {
+	return n.StartWithPeers(bootstrap, nil)
+}
+
+// StartWithPeers initializes and starts the Raft node with optional peer addresses.
+// If bootstrap is true, this node bootstraps the cluster.
+// If bootstrap is false and peers are provided, this node joins the existing cluster.
+func (n *Node) StartWithPeers(bootstrap bool, peers []string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Create Raft configuration
+	// Create Raft configuration with optimized timeouts for fast failover
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(n.nodeID)
+	
+	// Optimized Raft configuration for fast failover (<500ms target)
+	config.ElectionTimeout = 250 * time.Millisecond      // Very fast election
+	config.HeartbeatTimeout = 125 * time.Millisecond     // Fast heartbeat
+	config.LeaderLeaseTimeout = 125 * time.Millisecond   // Fast lease
+	config.CommitTimeout = 25 * time.Millisecond         // Very fast commit
+	config.SnapshotInterval = 60 * time.Second           // Snapshot every 60s
+	config.SnapshotThreshold = 1024                      // Snapshot after 1024 ops
 
 	// Create data directory for Raft
 	raftDir := filepath.Join(n.dataDir, "raft")
@@ -127,10 +142,116 @@ func (n *Node) Start(bootstrap bool) error {
 		}
 
 		log.Printf("Bootstrapped Raft cluster with node %s", n.nodeID)
+	} else if len(peers) > 0 {
+		// Join existing cluster - nodes will be added by the leader
+		// The leader should call AddVoter for each peer
+		log.Printf("Node %s starting to join cluster with peers: %v", n.nodeID, peers)
 	}
 
-	log.Printf("Raft node %s started on port %d", n.nodeID, n.raftPort)
+	log.Printf("Raft node %s started on port %d (election_timeout=%v, heartbeat=%v)", 
+		n.nodeID, n.raftPort, config.ElectionTimeout, config.HeartbeatTimeout)
 	return nil
+}
+
+// JoinCluster adds this node to an existing Raft cluster.
+// This should be called by the leader to add a new voter.
+func (n *Node) JoinCluster(leaderAddr string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.raftNode == nil {
+		return fmt.Errorf("raft node not started")
+	}
+
+	advertiseAddr := fmt.Sprintf("127.0.0.1:%d", n.raftPort)
+	
+	// Use Raft's AddVoter API to add this node as a voter
+	future := n.raftNode.AddVoter(
+		raft.ServerID(n.nodeID),
+		raft.ServerAddress(advertiseAddr),
+		0,      // prevIndex: 0 means any
+		10*time.Second, // timeout
+	)
+	
+	if err := future.Error(); err != nil {
+		// Check if node is already in the cluster
+		if err.Error() == "already in the cluster" {
+			log.Printf("Node %s is already a cluster member", n.nodeID)
+			return nil
+		}
+		return fmt.Errorf("failed to add voter: %w", err)
+	}
+
+	log.Printf("Node %s successfully joined cluster at %s", n.nodeID, advertiseAddr)
+	return nil
+}
+
+// AddPeer adds a new peer to the Raft cluster (called by leader).
+func (n *Node) AddPeer(peerID, peerAddr string) error {
+	if n.raftNode == nil {
+		return fmt.Errorf("raft node not started")
+	}
+
+	if !n.IsLeader() {
+		return fmt.Errorf("only leader can add peers")
+	}
+
+	future := n.raftNode.AddVoter(
+		raft.ServerID(peerID),
+		raft.ServerAddress(peerAddr),
+		0,
+		10*time.Second,
+	)
+
+	if err := future.Error(); err != nil {
+		if err.Error() == "already in the cluster" {
+			log.Printf("Peer %s is already a cluster member", peerID)
+			return nil
+		}
+		return fmt.Errorf("failed to add peer %s: %w", peerID, err)
+	}
+
+	log.Printf("Added peer %s at %s to cluster", peerID, peerAddr)
+	return nil
+}
+
+// RemovePeer removes a peer from the Raft cluster (called by leader).
+func (n *Node) RemovePeer(peerID string) error {
+	if n.raftNode == nil {
+		return fmt.Errorf("raft node not started")
+	}
+
+	if !n.IsLeader() {
+		return fmt.Errorf("only leader can remove peers")
+	}
+
+	future := n.raftNode.RemoveServer(
+		raft.ServerID(peerID),
+		0,
+		10*time.Second,
+	)
+
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to remove peer %s: %w", peerID, err)
+	}
+
+	log.Printf("Removed peer %s from cluster", peerID)
+	return nil
+}
+
+// GetClusterMembers returns the current cluster configuration.
+func (n *Node) GetClusterMembers() ([]raft.Server, error) {
+	if n.raftNode == nil {
+		return nil, fmt.Errorf("raft node not started")
+	}
+
+	future := n.raftNode.GetConfiguration()
+	if err := future.Error(); err != nil {
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	config := future.Configuration()
+	return config.Servers, nil
 }
 
 // Add adds an item to the Bloom filter through Raft consensus.
