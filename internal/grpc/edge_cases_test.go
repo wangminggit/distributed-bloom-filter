@@ -27,10 +27,12 @@ func TestAuthInterceptor_BoundaryTimestamp(t *testing.T) {
 	testSecret := "test-secret-boundary"
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	apiKeys := map[string]string{testAPIKey: testSecret}
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: apiKeys}
 	interceptor, err := NewAuthInterceptor(config)
 	if err != nil { t.Fatalf("Failed: %v", err) }
 	defer interceptor.Stop()
+	interceptor.keyStore = keyStore
 
 	t.Run("TimestampJustWithinLimit", func(t *testing.T) {
 		// Create timestamp just within the limit (4 minutes 59 seconds ago)
@@ -414,10 +416,12 @@ func TestAuthInterceptor_ReplayAttack(t *testing.T) {
 	testSecret := "test-replay-secret"
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	apiKeys := map[string]string{testAPIKey: testSecret}
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: apiKeys}
 	interceptor, err := NewAuthInterceptor(config)
 	if err != nil { t.Fatalf("Failed: %v", err) }
 	defer interceptor.Stop()
+	interceptor.keyStore = keyStore
 
 	timestamp := time.Now().Unix()
 	method := "/dbf.DBFService/Add"
@@ -446,7 +450,7 @@ func TestAuthInterceptor_ReplayAttack(t *testing.T) {
 	}
 
 	// First request should succeed
-	_, err := interceptor.UnaryInterceptor()(ctx, req, info, handler)
+	_, err = interceptor.UnaryInterceptor()(ctx, req, info, handler)
 	if err != nil {
 		t.Fatalf("First request failed: %v", err)
 	}

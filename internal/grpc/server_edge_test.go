@@ -178,7 +178,6 @@ func TestGetClientIP_AllPaths(t *testing.T) {
 
 // TestCleanupOldTimestamps tests the cleanup function (currently no-op)
 func TestCleanupOldTimestamps(t *testing.T) {
-	keyStore := NewMemoryAPIKeyStore()
 	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
 	interceptor, err := NewAuthInterceptor(config)
 	if err != nil { t.Fatalf("Failed: %v", err) }

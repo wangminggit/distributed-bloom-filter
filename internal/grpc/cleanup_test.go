@@ -5,8 +5,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/wangminggit/distributed-bloom-filter/api/proto"
 )
 
 // TestCleanupOldTimestamps_Empty tests cleanup with no timestamps
@@ -175,7 +173,7 @@ func TestAuthInterceptor_Stop(t *testing.T) {
 
 // TestMemoryAPIKeyStore_Concurrent tests concurrent access to the key store
 func TestMemoryAPIKeyStore_Concurrent(t *testing.T) {
-	
+	keyStore := NewMemoryAPIKeyStore()
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -203,28 +201,33 @@ func TestMemoryAPIKeyStore_Concurrent(t *testing.T) {
 
 // TestAuthInterceptor_ValidateAuthWithExpiredTimestamp tests validation with expired timestamp
 func TestAuthInterceptor_ValidateAuthWithExpiredTimestamp(t *testing.T) {
-	
 	testAPIKey := "test-key"
 	testSecret := "test-secret"
+	
+	keyStore := NewMemoryAPIKeyStore()
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	apiKeys := map[string]string{testAPIKey: testSecret}
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: apiKeys}
 	interceptor, err := NewAuthInterceptor(config)
 	if err != nil {
 		t.Fatalf("Failed to create interceptor: %v", err)
 	}
 	defer interceptor.Stop()
+	
+	// Inject the key store into the interceptor
+	interceptor.keyStore = keyStore
 
 	// Create auth with very old timestamp
 	oldTimestamp := time.Now().Add(-2 * maxRequestAge).Unix()
-	auth := &proto.AuthMetadata{
+	auth := &APIMetadata{
 		ApiKey:    testAPIKey,
 		Timestamp: oldTimestamp,
 		Signature: interceptor.computeSignature(testAPIKey, oldTimestamp, "/test.Method", testSecret),
 	}
 
 	// Validation should fail
-	err := interceptor.validateAPIKeyAuth(nil, auth, "/test.Method")
+	err = interceptor.validateAPIKeyAuth(nil, auth, "/test.Method")
 	if err == nil {
 		t.Error("Expected error for expired timestamp")
 	}
@@ -232,28 +235,33 @@ func TestAuthInterceptor_ValidateAuthWithExpiredTimestamp(t *testing.T) {
 
 // TestAuthInterceptor_ValidateAuthWithReplay tests replay attack detection
 func TestAuthInterceptor_ValidateAuthWithReplay(t *testing.T) {
-	
 	testAPIKey := "test-key"
 	testSecret := "test-secret"
+	
+	keyStore := NewMemoryAPIKeyStore()
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	apiKeys := map[string]string{testAPIKey: testSecret}
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: apiKeys}
 	interceptor, err := NewAuthInterceptor(config)
 	if err != nil {
 		t.Fatalf("Failed to create interceptor: %v", err)
 	}
 	defer interceptor.Stop()
+	
+	// Inject the key store into the interceptor
+	interceptor.keyStore = keyStore
 
 	// Create valid auth
 	timestamp := time.Now().Unix()
-	auth := &proto.AuthMetadata{
+	auth := &APIMetadata{
 		ApiKey:    testAPIKey,
 		Timestamp: timestamp,
 		Signature: interceptor.computeSignature(testAPIKey, timestamp, "/test.Method", testSecret),
 	}
 
 	// First validation should succeed
-	err := interceptor.validateAPIKeyAuth(nil, auth, "/test.Method")
+	err = interceptor.validateAPIKeyAuth(nil, auth, "/test.Method")
 	if err != nil {
 		t.Errorf("First validation failed: %v", err)
 	}

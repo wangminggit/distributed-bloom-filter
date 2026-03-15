@@ -23,10 +23,12 @@ func TestAuthInterceptor(t *testing.T) {
 	testSecret := "test-secret-456"
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	apiKeys := map[string]string{testAPIKey: testSecret}
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: apiKeys}
 	interceptor, err := NewAuthInterceptor(config)
 	if err != nil { t.Fatalf("Failed: %v", err) }
 	defer interceptor.Stop()
+	interceptor.keyStore = keyStore
 
 	t.Run("ValidAuth", func(t *testing.T) {
 		// Create a valid request with proper authentication
@@ -316,8 +318,14 @@ func TestChainedInterceptors(t *testing.T) {
 	keyStore.AddKey(testAPIKey, testSecret)
 
 	// Create both interceptors
-	authInterceptor := NewAuthInterceptor(keyStore)
+	apiKeys := map[string]string{testAPIKey: testSecret}
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: apiKeys}
+	authInterceptor, err := NewAuthInterceptor(config)
+	if err != nil {
+		t.Fatalf("Failed to create auth interceptor: %v", err)
+	}
 	defer authInterceptor.Stop()
+	authInterceptor.keyStore = keyStore
 
 	rateLimiter := NewRateLimitInterceptor(10, 10)
 	defer rateLimiter.Stop()
@@ -406,8 +414,14 @@ func TestChainedInterceptors(t *testing.T) {
 		// Create a fresh auth interceptor and rate limiter with very low limit
 		testKeyStore := NewMemoryAPIKeyStore()
 		testKeyStore.AddKey(testAPIKey, testSecret)
-		testAuthInterceptor := NewAuthInterceptor(testKeyStore)
+		testAPIKeys := map[string]string{testAPIKey: testSecret}
+		testConfig := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: testAPIKeys}
+		testAuthInterceptor, err := NewAuthInterceptor(testConfig)
+		if err != nil {
+			t.Fatalf("Failed to create auth interceptor: %v", err)
+		}
 		defer testAuthInterceptor.Stop()
+		testAuthInterceptor.keyStore = testKeyStore
 
 		// Use very low rate limit: 100 per second but burst=1
 		// This means only 1 request can go through immediately
