@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -403,4 +404,120 @@ func TestService_GetMetadata(t *testing.T) {
 	}
 
 	t.Log("GetMetadata test passed")
+}
+
+// TestMetadataService_ConcurrentWrites tests that concurrent writes are atomic and safe.
+// This is a P1 test case for atomic write safety.
+func TestMetadataService_ConcurrentWrites(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	service := NewService(tmpDir)
+
+	// Set initial node ID
+	err := service.SetNodeID("concurrent-test-node")
+	if err != nil {
+		t.Fatalf("Failed to set node ID: %v", err)
+	}
+
+	// Run concurrent save operations
+	var wg sync.WaitGroup
+	const goroutines = 20
+	const savesPerGoroutine = 10
+
+	errors := make(chan error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			for j := 0; j < savesPerGoroutine; j++ {
+				// Update some data
+				service.SetConfig(fmt.Sprintf("goroutine-%d-key-%d", idx, j), j)
+				
+				// Save concurrently
+				if err := service.Save(); err != nil {
+					errors <- err
+					return
+				}
+				
+				// Small delay to increase contention
+				time.Sleep(time.Millisecond)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Check for any errors
+	errorCount := 0
+	for err := range errors {
+		t.Errorf("Concurrent write error: %v", err)
+		errorCount++
+	}
+	if errorCount > 0 {
+		t.Fatalf("Had %d concurrent write errors", errorCount)
+	}
+
+	// Verify the metadata file is valid JSON (not corrupted)
+	metadataPath := filepath.Join(tmpDir, "metadata.json")
+	data, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("Failed to read metadata file: %v", err)
+	}
+
+	var loaded Metadata
+	err = json.Unmarshal(data, &loaded)
+	if err != nil {
+		t.Fatalf("Metadata file should be valid JSON after concurrent writes: %v", err)
+	}
+
+	// Verify file is not empty
+	if len(data) == 0 {
+		t.Error("Metadata file should not be empty")
+	}
+
+	t.Logf("ConcurrentWrites test passed: %d goroutines, %d saves each, file size: %d bytes",
+		goroutines, savesPerGoroutine, len(data))
+}
+
+// TestMetadataService_AtomicWrite verifies that writes are atomic by checking
+// that no partial writes occur even under heavy concurrent load.
+func TestMetadataService_AtomicWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	service := NewService(tmpDir)
+	service.SetNodeID("atomic-test-node")
+
+	// Run very rapid concurrent writes
+	var wg sync.WaitGroup
+	const goroutines = 50
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			service.SetConfig("key", idx)
+			service.Save()
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Read the file multiple times to ensure it's always valid
+	for i := 0; i < 10; i++ {
+		metadataPath := filepath.Join(tmpDir, "metadata.json")
+		data, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatalf("Failed to read metadata file: %v", err)
+		}
+
+		var loaded Metadata
+		err = json.Unmarshal(data, &loaded)
+		if err != nil {
+			t.Fatalf("Metadata file should always be valid JSON (attempt %d): %v", i+1, err)
+		}
+	}
+
+	t.Log("AtomicWrite test passed: file remained valid under concurrent writes")
 }

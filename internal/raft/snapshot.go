@@ -435,6 +435,16 @@ func (sm *SnapshotManager) GetLastSnapshotTime() time.Time {
 	return sm.lastSnapshotTime
 }
 
+// RestoreFromFSM updates snapshot manager state after FSM restore.
+// This is called after Restore() to keep snapshot manager in sync with FSM.
+func (sm *SnapshotManager) RestoreFromFSM(index, term uint64) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.lastSnapshotIndex = index
+	sm.lastSnapshotTerm = term
+	sm.lastSnapshotTime = time.Now()
+}
+
 // GetStats returns a copy of the snapshot statistics.
 func (sm *SnapshotManager) GetStats() SnapshotStats {
 	if sm == nil || sm.stats == nil {

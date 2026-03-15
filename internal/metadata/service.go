@@ -14,6 +14,7 @@ type Service struct {
 	dataDir  string
 	metadata *Metadata
 	mu       sync.RWMutex
+	writeMu  sync.Mutex // Protects write operations for atomic saves
 }
 
 // Metadata contains all metadata for the Bloom filter service.
@@ -86,12 +87,23 @@ func (s *Service) Load() error {
 	return nil
 }
 
-// Save saves metadata to disk.
+// Save saves metadata to disk atomically.
+// Uses write-ahead logging pattern: write to temp file, then atomic rename.
 func (s *Service) Save() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.metadata.UpdatedAt = time.Now()
+	
+	// Create a copy of metadata to serialize
+	data, err := json.MarshalIndent(s.metadata, "", "  ")
+	s.mu.Unlock()
+	
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	// Use write mutex to prevent concurrent writes
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 
 	metadataPath := filepath.Join(s.dataDir, "metadata.json")
 
@@ -100,13 +112,25 @@ func (s *Service) Save() error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	data, err := json.MarshalIndent(s.metadata, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
+	// Write to temporary file first
+	tmpPath := metadataPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temporary file: %w", err)
 	}
 
-	if err := os.WriteFile(metadataPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write metadata: %w", err)
+	// Atomic rename - this is the key to atomic writes
+	// os.Rename() is atomic on POSIX systems when source and dest are on same filesystem
+	if err := os.Rename(tmpPath, metadataPath); err != nil {
+		// Clean up temp file on failure
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to rename temporary file: %w", err)
+	}
+
+	// Sync directory to ensure rename is persisted
+	dir, err := os.Open(s.dataDir)
+	if err == nil {
+		dir.Sync()
+		dir.Close()
 	}
 
 	return nil

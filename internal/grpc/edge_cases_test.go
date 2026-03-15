@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/wangminggit/distributed-bloom-filter/api/proto"
@@ -25,7 +27,10 @@ func TestAuthInterceptor_BoundaryTimestamp(t *testing.T) {
 	testSecret := "test-secret-boundary"
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	interceptor := NewAuthInterceptor(keyStore)
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	interceptor, err := NewAuthInterceptor(config)
+	if err != nil { t.Fatalf("Failed: %v", err) }
+	defer interceptor.Stop()
 
 	t.Run("TimestampJustWithinLimit", func(t *testing.T) {
 		// Create timestamp just within the limit (4 minutes 59 seconds ago)
@@ -174,7 +179,10 @@ func TestStreamInterceptor_Auth(t *testing.T) {
 	testSecret := "test-stream-secret"
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	interceptor := NewAuthInterceptor(keyStore)
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	interceptor, err := NewAuthInterceptor(config)
+	if err != nil { t.Fatalf("Failed: %v", err) }
+	defer interceptor.Stop()
 
 	// Verify interceptor exists
 	if interceptor == nil {
@@ -353,9 +361,17 @@ func TestServer_RaftFailure(t *testing.T) {
 }
 
 // TestGetClientIP_WithMetadata tests GetClientIP with various metadata
+// Note: These tests use a trusted proxy IP (localhost) to allow X-Forwarded-For headers
 func TestGetClientIP_WithMetadata(t *testing.T) {
+	// Create a peer from localhost (trusted by default)
+	peerAddr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 54321,
+	}
+
 	t.Run("XForwardedFor", func(t *testing.T) {
-		ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: peerAddr})
+		ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
 			"x-forwarded-for", "192.168.1.100",
 		))
 		
@@ -366,7 +382,8 @@ func TestGetClientIP_WithMetadata(t *testing.T) {
 	})
 
 	t.Run("XRealIP", func(t *testing.T) {
-		ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: peerAddr})
+		ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
 			"x-real-ip", "10.0.0.50",
 		))
 		
@@ -377,7 +394,8 @@ func TestGetClientIP_WithMetadata(t *testing.T) {
 	})
 
 	t.Run("XForwardedForTakesPrecedence", func(t *testing.T) {
-		ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: peerAddr})
+		ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
 			"x-forwarded-for", "192.168.1.100",
 			"x-real-ip", "10.0.0.50",
 		))
@@ -396,7 +414,10 @@ func TestAuthInterceptor_ReplayAttack(t *testing.T) {
 	testSecret := "test-replay-secret"
 	keyStore.AddKey(testAPIKey, testSecret)
 
-	interceptor := NewAuthInterceptor(keyStore)
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	interceptor, err := NewAuthInterceptor(config)
+	if err != nil { t.Fatalf("Failed: %v", err) }
+	defer interceptor.Stop()
 
 	timestamp := time.Now().Unix()
 	method := "/dbf.DBFService/Add"

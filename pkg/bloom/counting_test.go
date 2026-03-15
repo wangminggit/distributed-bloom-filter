@@ -287,6 +287,64 @@ func TestHashIndices(t *testing.T) {
 	}
 }
 
+// TestDeserialize_ChecksumVerification tests that corrupted data is detected via CRC32 checksum verification.
+func TestDeserialize_ChecksumVerification(t *testing.T) {
+	// Create a valid Bloom filter and serialize it
+	cbf := NewCountingBloomFilter(1000, 5)
+	item := []byte("test-item")
+	if err := cbf.Add(item); err != nil {
+		t.Errorf("Add failed: %v", err)
+	}
+
+	data := cbf.Serialize()
+
+	// Test 1: Corrupt a byte in the counter data (early position)
+	corruptedData := make([]byte, len(data))
+	copy(corruptedData, data)
+	corruptedData[10] ^= 0xFF // Flip bits in counter data
+
+	_, err := Deserialize(corruptedData)
+	if err != ErrChecksumMismatch {
+		t.Errorf("Expected ErrChecksumMismatch for corrupted counter data, got: %v", err)
+	}
+
+	// Test 2: Corrupt a byte in the counter region (later position)
+	corruptedData2 := make([]byte, len(data))
+	copy(corruptedData2, data)
+	corruptedData2[500] ^= 0xFF // Flip bits in counter data at different position
+
+	_, err = Deserialize(corruptedData2)
+	if err != ErrChecksumMismatch {
+		t.Errorf("Expected ErrChecksumMismatch for corrupted counter data (position 500), got: %v", err)
+	}
+
+	// Test 3: Corrupt the checksum itself
+	corruptedData3 := make([]byte, len(data))
+	copy(corruptedData3, data)
+	corruptedData3[len(data)-1] ^= 0xFF // Flip bits in checksum
+
+	_, err = Deserialize(corruptedData3)
+	if err != ErrChecksumMismatch {
+		t.Errorf("Expected ErrChecksumMismatch for corrupted checksum, got: %v", err)
+	}
+
+	// Test 4: Truncate data (remove last byte of checksum)
+	truncatedData := data[:len(data)-1]
+	_, err = Deserialize(truncatedData)
+	if err != ErrInvalidData {
+		t.Errorf("Expected ErrInvalidData for truncated data, got: %v", err)
+	}
+
+	// Test 5: Valid data should still work
+	cbf2, err := Deserialize(data)
+	if err != nil {
+		t.Fatalf("Failed to deserialize valid data: %v", err)
+	}
+	if !cbf2.Contains(item) {
+		t.Error("Deserialized filter should contain the item")
+	}
+}
+
 // TestCounterOverflow tests P1-2: Bloom 计数器溢出处理
 func TestCounterOverflow(t *testing.T) {
 	cbf := NewCountingBloomFilter(1000, 5)

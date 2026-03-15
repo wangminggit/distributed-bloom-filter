@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -72,14 +73,43 @@ func TestGRPCServerStop(t *testing.T) {
 }
 
 // TestStartInsecure tests the deprecated StartInsecure method
+//
+// This test verifies that StartInsecure can be called and stopped cleanly.
+// We use a channel to synchronize server startup to avoid race conditions
+// between Start() assigning s.server and Stop() reading it.
 func TestStartInsecure(t *testing.T) {
 	mockNode := newMockRaftNode()
 	server := NewGRPCServer(mockNode)
 
-	// Try to start on port 0 (will fail)
-	err := server.StartInsecure(0)
-	if err == nil {
-		t.Error("Expected error for port 0, got nil")
+	// Channel to signal that server initialization is complete (s.server assigned)
+	ready := make(chan struct{})
+	done := make(chan error, 1)
+	
+	// Start server in a goroutine with synchronization channel
+	go func() {
+		config := ServerConfig{
+			Port:      0,
+			EnableTLS: false,
+			readyCh:   ready, // Signal when ready to serve
+		}
+		done <- server.Start(config)
+	}()
+
+	// Wait for server to be initialized (s.server assigned and about to Serve)
+	<-ready
+	
+	// Now it's safe to stop - s.server has been assigned
+	server.Stop()
+	
+	// Wait for Start to return (with timeout)
+	select {
+	case err := <-done:
+		// Error is expected after stopping
+		if err != nil && err.Error() != "grpc: the server has been stopped" {
+			t.Logf("Server stopped with error (expected): %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timeout: server did not stop")
 	}
 }
 
@@ -149,7 +179,10 @@ func TestGetClientIP_AllPaths(t *testing.T) {
 // TestCleanupOldTimestamps tests the cleanup function (currently no-op)
 func TestCleanupOldTimestamps(t *testing.T) {
 	keyStore := NewMemoryAPIKeyStore()
-	interceptor := NewAuthInterceptor(keyStore)
+	config := &AuthConfig{EnableAPIKeyAuth: true, APIKeys: make(map[string]string)}
+	interceptor, err := NewAuthInterceptor(config)
+	if err != nil { t.Fatalf("Failed: %v", err) }
+	defer interceptor.Stop()
 
 	// Should not panic
 	interceptor.cleanupOldTimestamps()

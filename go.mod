@@ -3,6 +3,8 @@ module github.com/wangminggit/distributed-bloom-filter
 go 1.24.0
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb v0.0.0-20251103221153-05f9dd7a5148
 	github.com/twmb/murmur3 v1.1.8

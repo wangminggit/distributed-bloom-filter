@@ -31,6 +31,7 @@ func TestNodeStartAndLeaderElection(t *testing.T) {
 	config.LocalID = "test-node1"
 	config.Bootstrap = true
 	config.UseInmemStore = true // Use in-memory store for race detection
+	config.TLSEnabled = false  // Disable TLS for testing
 
 	node, err := NewNode(config, bloomFilter, walEncryptor, metadataService)
 	if err != nil {
@@ -74,6 +75,7 @@ func TestNodeAddAndContains(t *testing.T) {
 	config.DataDir = tmpDir
 	config.LocalID = "test-node2"
 	config.UseInmemStore = true
+	config.TLSEnabled = false
 
 	node, err := NewNode(config, bloomFilter, walEncryptor, metadataService)
 	if err != nil {
@@ -121,6 +123,7 @@ func TestNodeGracefulShutdown(t *testing.T) {
 	config.DataDir = tmpDir
 	config.LocalID = "test-node3"
 	config.UseInmemStore = true
+	config.TLSEnabled = false
 
 	node, err := NewNode(config, bloomFilter, walEncryptor, metadataService)
 	if err != nil {
@@ -157,6 +160,7 @@ func TestNodeMultipleOperations(t *testing.T) {
 	config.DataDir = tmpDir
 	config.LocalID = "test-node4"
 	config.UseInmemStore = true
+	config.TLSEnabled = false
 
 	node, err := NewNode(config, bloomFilter, walEncryptor, metadataService)
 	if err != nil {
@@ -419,6 +423,7 @@ func TestNodeSnapshotSaveLoad(t *testing.T) {
 	config.DataDir = tmpDir
 	config.LocalID = "test-node5"
 	config.UseInmemStore = true
+	config.TLSEnabled = false
 
 	node, err := NewNode(config, bloomFilter, walEncryptor, metadataService)
 	if err != nil {

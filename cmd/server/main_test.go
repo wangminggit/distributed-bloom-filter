@@ -188,6 +188,7 @@ func TestRaftNodeCreation(t *testing.T) {
 	config.DataDir = tmpDir
 	config.LocalID = "test-node"
 	config.UseInmemStore = true
+	config.TLSEnabled = false // Disable TLS for testing
 
 	raftNode, err := raft.NewNode(config, bloomFilter, walEncryptor, metadataService)
 	if err != nil {
@@ -215,6 +216,7 @@ func TestRaftNodeStartAndShutdown(t *testing.T) {
 	config.DataDir = tmpDir
 	config.LocalID = "test-node"
 	config.UseInmemStore = true
+	config.TLSEnabled = false // Disable TLS for testing
 
 	raftNode, err := raft.NewNode(config, bloomFilter, walEncryptor, metadataService)
 	if err != nil {

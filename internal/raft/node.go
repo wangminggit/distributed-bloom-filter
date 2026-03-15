@@ -2,6 +2,8 @@ package raft
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,6 +62,10 @@ type Node struct {
 	replicationManager *ReplicationManager
 	snapshotManager   *SnapshotManager
 
+	// FSM - embedded state machine for Raft
+	// All state changes go through this single FSM to ensure consistency
+	fsm *BloomFSM
+
 	// Runtime state
 	mu sync.RWMutex
 }
@@ -75,6 +81,12 @@ func NewNode(config *Config,
 		return nil, err
 	}
 
+	// Create the FSM - this is the single source of truth for state changes
+	fsm, err := NewBloomFSM(bloomFilter, walEncryptor, filepath.Join(config.DataDir, "wal"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create FSM: %w", err)
+	}
+
 	node := &Node{
 		config:            config,
 		bloomFilter:       bloomFilter,
@@ -85,6 +97,7 @@ func NewNode(config *Config,
 		electionManager:   NewElectionManager(),
 		replicationManager: NewReplicationManager(),
 		snapshotManager:   NewSnapshotManager(bloomFilter),
+		fsm:               fsm,
 	}
 
 	return node, nil
@@ -165,15 +178,28 @@ func (n *Node) Start() error {
 		}
 	}
 
-	// Create transport
+	// Create transport (with TLS if enabled)
 	bindAddr := fmt.Sprintf("127.0.0.1:%d", n.config.RaftPort)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", bindAddr)
 	if err != nil {
 		return fmt.Errorf("failed to resolve TCP address: %w", err)
 	}
-	transport, err := raft.NewTCPTransport(bindAddr, tcpAddr, 3, 10*time.Second, os.Stderr)
-	if err != nil {
-		return fmt.Errorf("failed to create transport: %w", err)
+
+	var transport *raft.NetworkTransport
+	if n.config.TLSEnabled && n.config.TLSConfig != nil {
+		// Create TLS-encrypted transport
+		transport, err = n.createTLSTransport(bindAddr, tcpAddr)
+		if err != nil {
+			return fmt.Errorf("failed to create TLS transport: %w", err)
+		}
+		log.Printf("Raft node %s: TLS transport enabled on %s", n.config.NodeID, bindAddr)
+	} else {
+		// Create plain TCP transport (development/testing only)
+		transport, err = raft.NewTCPTransport(bindAddr, tcpAddr, 3, 10*time.Second, os.Stderr)
+		if err != nil {
+			return fmt.Errorf("failed to create transport: %w", err)
+		}
+		log.Printf("Raft node %s: Plain TCP transport enabled on %s (INSECURE)", n.config.NodeID, bindAddr)
 	}
 	n.transport = transport
 
@@ -201,6 +227,145 @@ func (n *Node) Start() error {
 
 	log.Printf("Raft node %s started on port %d", n.config.NodeID, n.config.RaftPort)
 	return nil
+}
+
+// createTLSTransport creates a TLS-encrypted transport for Raft.
+func (n *Node) createTLSTransport(bindAddr string, advertise net.Addr) (*raft.NetworkTransport, error) {
+	tlsConfig := n.config.TLSConfig
+
+	// Validate TLS configuration
+	if tlsConfig.CertFile == "" || tlsConfig.KeyFile == "" {
+		return nil, fmt.Errorf("TLS certificate and key files are required")
+	}
+
+	// Load server certificate
+	cert, err := tls.LoadX509KeyPair(tlsConfig.CertFile, tlsConfig.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load server certificate: %w", err)
+	}
+
+	// Create CA certificate pool for client verification
+	caCertPool := x509.NewCertPool()
+	if tlsConfig.CAFile != "" {
+		caCertPEM, err := os.ReadFile(tlsConfig.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load CA certificate: %w", err)
+		}
+		if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+	}
+
+	// Create TLS configuration for server
+	serverTLSConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientAuth:   tls.RequireAndVerifyClientCert, // Enforce mTLS
+		ClientCAs:    caCertPool,
+		MinVersion:   tlsConfig.MinVersion,
+		ServerName:   tlsConfig.ServerName,
+	}
+
+	// For development, allow insecure connections
+	if tlsConfig.InsecureSkipVerify {
+		serverTLSConfig.ClientAuth = tls.RequireAnyClientCert
+	}
+
+	// Listen on the bind address
+	listener, err := net.Listen("tcp", bindAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create listener: %w", err)
+	}
+
+	// Wrap with TLS
+	tlsListener := tls.NewListener(listener, serverTLSConfig)
+
+	// Create TLS stream layer
+	streamLayer := &tlsStreamLayer{
+		listener:   tlsListener,
+		tlsConfig:  serverTLSConfig,
+		advertise:  advertise,
+		serverName: tlsConfig.ServerName,
+		caPool:     caCertPool,
+	}
+
+	// Create network transport config
+	config := &raft.NetworkTransportConfig{
+		Stream:          streamLayer,
+		MaxPool:         n.config.MaxPool,
+		Timeout:         n.config.Timeout,
+		MaxRPCsInFlight: 2,
+	}
+
+	// Create network transport
+	transport := raft.NewNetworkTransportWithConfig(config)
+
+	return transport, nil
+}
+
+// tlsStreamLayer implements raft.StreamLayer for TLS-encrypted connections.
+type tlsStreamLayer struct {
+	listener   net.Listener
+	tlsConfig  *tls.Config
+	advertise  net.Addr
+	serverName string
+	caPool     *x509.CertPool
+}
+
+func (t *tlsStreamLayer) Accept() (net.Conn, error) {
+	return t.listener.Accept()
+}
+
+func (t *tlsStreamLayer) Close() error {
+	return t.listener.Close()
+}
+
+func (t *tlsStreamLayer) Addr() net.Addr {
+	if t.advertise != nil {
+		return t.advertise
+	}
+	return t.listener.Addr()
+}
+
+func (t *tlsStreamLayer) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
+	// Create TLS config for client
+	clientTLSConfig := t.tlsConfig.Clone()
+	clientTLSConfig.ServerName = t.serverName
+	clientTLSConfig.InsecureSkipVerify = false
+
+	// Load client certificate if available (for mTLS)
+	// In production, these would be configured separately
+	if t.tlsConfig.Certificates != nil && len(t.tlsConfig.Certificates) > 0 {
+		clientTLSConfig.Certificates = t.tlsConfig.Certificates
+	}
+
+	// Dial the remote address
+	conn, err := net.DialTimeout("tcp", string(address), timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial %s: %w", address, err)
+	}
+
+	// Wrap with TLS
+	tlsConn := tls.Client(conn, clientTLSConfig)
+
+	// Set deadline for handshake
+	if err := tlsConn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to set deadline: %w", err)
+	}
+
+	// Perform TLS handshake
+	if err := tlsConn.Handshake(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("TLS handshake failed: %w", err)
+	}
+
+	// Clear deadline
+	if err := tlsConn.SetDeadline(time.Time{}); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to clear deadline: %w", err)
+	}
+
+	return tlsConn, nil
 }
 
 // bootstrapCluster bootstraps a new Raft cluster.
@@ -351,6 +516,14 @@ func (n *Node) Shutdown() error {
 
 	var lastErr error
 
+	// Close FSM first to flush any pending WAL writes
+	if n.fsm != nil {
+		if err := n.fsm.Close(); err != nil {
+			log.Printf("Error closing FSM: %v", err)
+			lastErr = err
+		}
+	}
+
 	if n.transport != nil {
 		if err := n.transport.Close(); err != nil {
 			lastErr = err
@@ -365,8 +538,18 @@ func (n *Node) Shutdown() error {
 		}
 	}
 
-	// Note: raftStore (BoltStore) doesn't have a Close method in the LogStore interface
-	// It's closed automatically when Raft shuts down
+	// Close BoltDB store explicitly to prevent resource泄漏
+	// This is only needed when using persistent storage (not inmem store)
+	if n.raftStore != nil && !n.config.UseInmemStore {
+		if boltStore, ok := n.raftStore.(*raftboltdb.BoltStore); ok {
+			if err := boltStore.Close(); err != nil {
+				log.Printf("Error closing BoltDB: %v", err)
+				lastErr = err
+			} else {
+				log.Printf("BoltDB closed successfully for node %s", n.config.NodeID)
+			}
+		}
+	}
 
 	log.Printf("Raft node %s shut down", n.config.NodeID)
 	return lastErr
@@ -374,36 +557,26 @@ func (n *Node) Shutdown() error {
 
 // Apply applies a Raft log entry to the FSM (called by Raft on leader).
 // This implements the raft.FSM interface.
+//
+// IMPORTANT: This is the ONLY path for FSM state changes.
+// All state modifications must go through this method to ensure consistency.
+// The actual state change logic is delegated to BloomFSM.Apply() to avoid
+// duplicate implementations and potential data races.
 func (n *Node) Apply(log *raft.Log) interface{} {
-	// Parse the command
-	var cmd Command
-	if err := json.Unmarshal(log.Data, &cmd); err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
+	// Delegate to the embedded FSM - this ensures a single unified Apply path
+	result := n.fsm.Apply(log)
 
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	// Execute the command on the Bloom filter
-	var result interface{}
-	switch cmd.Type {
-	case "add":
-		if err := n.bloomFilter.Add(cmd.Item); err != nil {
-			result = err
-		} else {
-			result = nil
-			if n.metadataService != nil {
+	// Update metadata service (non-critical, doesn't affect FSM state)
+	if result == nil && n.metadataService != nil {
+		var cmd Command
+		if err := json.Unmarshal(log.Data, &cmd); err == nil {
+			switch cmd.Type {
+			case "add":
 				n.metadataService.RecordAdd()
+			case "remove":
+				n.metadataService.RecordRemove()
 			}
 		}
-	case "remove":
-		n.bloomFilter.Remove(cmd.Item)
-		result = nil
-		if n.metadataService != nil {
-			n.metadataService.RecordRemove()
-		}
-	default:
-		result = fmt.Errorf("unknown command: %s", cmd.Type)
 	}
 
 	// Update state manager
@@ -414,14 +587,25 @@ func (n *Node) Apply(log *raft.Log) interface{} {
 
 // Snapshot returns a snapshot of the FSM state.
 // This implements the raft.FSM interface.
+//
+// Delegates to BloomFSM to ensure consistency with Apply().
 func (n *Node) Snapshot() (raft.FSMSnapshot, error) {
-	return n.snapshotManager.GetSnapshot()
+	return n.fsm.Snapshot()
 }
 
 // Restore restores the FSM state from a snapshot.
 // This implements the raft.FSM interface.
+//
+// Delegates to BloomFSM to ensure consistency with Apply().
 func (n *Node) Restore(rc io.ReadCloser) error {
-	return n.snapshotManager.RestoreSnapshot(rc)
+	err := n.fsm.Restore(rc)
+	if err != nil {
+		return err
+	}
+
+	// Update snapshot manager after restore
+	n.snapshotManager.RestoreFromFSM(n.fsm.GetLastAppliedIndex(), n.fsm.GetLastAppliedTerm())
+	return nil
 }
 
 // GetBloomFilter returns the Bloom filter instance.

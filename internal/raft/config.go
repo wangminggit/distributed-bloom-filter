@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"crypto/tls"
 	"errors"
 	"time"
 )
@@ -52,6 +53,39 @@ type Config struct {
 
 	// UseInmemStore uses in-memory storage instead of BoltDB (for testing).
 	UseInmemStore bool
+
+	// TLSEnabled enables TLS encryption for Raft node communication.
+	TLSEnabled bool
+
+	// TLSConfig holds the TLS configuration for encrypted communication.
+	TLSConfig *TLSRaftConfig
+}
+
+// TLSRaftConfig holds TLS configuration for Raft.
+type TLSRaftConfig struct {
+	// CAFile is the path to the CA certificate file
+	CAFile string
+
+	// CertFile is the path to the server certificate file
+	CertFile string
+
+	// KeyFile is the path to the server private key file
+	KeyFile string
+
+	// ClientCertFile is the path to the client certificate file (for outbound connections)
+	ClientCertFile string
+
+	// ClientKeyFile is the path to the client private key file (for outbound connections)
+	ClientKeyFile string
+
+	// ServerName is the expected server name for certificate verification
+	ServerName string
+
+	// MinVersion is the minimum TLS version (default: TLS 1.2)
+	MinVersion uint16
+
+	// InsecureSkipVerify disables certificate verification (development only)
+	InsecureSkipVerify bool
 }
 
 // ServerConfig holds the configuration for a cluster server.
@@ -78,6 +112,12 @@ func DefaultConfig() *Config {
 		Timeout:           10 * time.Second,
 		Bootstrap:         false,
 		UseInmemStore:     false,
+		TLSEnabled:        true, // Enable TLS by default for security
+		TLSConfig: &TLSRaftConfig{
+			MinVersion:         tls.VersionTLS12,
+			ServerName:         "localhost",
+			InsecureSkipVerify: false,
+		},
 	}
 }
 

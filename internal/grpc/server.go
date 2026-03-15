@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/wangminggit/distributed-bloom-filter/api/proto"
+	"github.com/wangminggit/distributed-bloom-filter/internal/audit"
 	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
 )
 
@@ -34,6 +36,20 @@ type ServerConfig struct {
 
 	// RateLimitBurstSize is the maximum burst size for rate limiting.
 	RateLimitBurstSize int
+
+	// AuditLogDir is the directory for audit logs (empty disables audit logging).
+	AuditLogDir string
+
+	// AuditMaxFileSize is the maximum size of audit log files before rotation.
+	AuditMaxFileSize int64
+
+	// AuditMaxAge is the maximum age of audit log files before cleanup.
+	AuditMaxAge int
+
+	// readyCh is an optional channel that is closed when the server is ready to serve.
+	// This is used for test synchronization to avoid race conditions between Start and Stop.
+	// Internal use only - not part of the public API.
+	readyCh chan struct{}
 }
 
 // GRPCServer wraps the gRPC server and service.
@@ -72,10 +88,72 @@ func (s *GRPCServer) Start(config ServerConfig) error {
 		log.Printf("WARNING: TLS is disabled - using insecure connection")
 	}
 
+	// Collect all unary interceptors for chaining
+	var unaryInterceptors []grpc.UnaryServerInterceptor
+	var streamInterceptors []grpc.StreamServerInterceptor
+
+	// Initialize audit logging if configured
+	var auditLogger *audit.Logger
+	if config.AuditLogDir != "" {
+		maxAge := audit.DefaultMaxAge
+		if config.AuditMaxAge > 0 {
+			maxAge = time.Duration(config.AuditMaxAge) * 24 * time.Hour
+		}
+		
+		auditConfig := audit.LoggerConfig{
+			LogDir:        config.AuditLogDir,
+			MaxFileSize:   config.AuditMaxFileSize,
+			MaxAge:        maxAge,
+			BufferSize:    audit.DefaultBufferSize,
+			FlushInterval: audit.DefaultFlushInterval,
+			EnableConsole: false,
+		}
+		
+		var err error
+		auditLogger, err = audit.NewLogger(auditConfig)
+		if err != nil {
+			log.Printf("WARNING: failed to initialize audit logger: %v", err)
+		} else {
+			log.Printf("Audit logging enabled: dir=%s", config.AuditLogDir)
+			
+			// Add audit interceptor first (for request tracking)
+			auditInterceptor := NewAuditInterceptor(auditLogger)
+			unaryInterceptors = append(unaryInterceptors, auditInterceptor.UnaryInterceptor())
+			streamInterceptors = append(streamInterceptors, auditInterceptor.StreamInterceptor())
+		}
+	}
+
 	// Add authentication interceptor if API key store is provided
 	if config.APIKeyStore != nil {
-		authInterceptor := NewAuthInterceptor(config.APIKeyStore)
-		opts = append(opts, grpc.UnaryInterceptor(authInterceptor.UnaryInterceptor()))
+		// Convert APIKeyStore to map for AuthConfig
+		apiKeys := make(map[string]string)
+		// Note: This is a temporary workaround - the APIKeyStore interface should be used directly
+		if memStore, ok := config.APIKeyStore.(*MemoryAPIKeyStore); ok {
+			memStore.mu.RLock()
+			for k, v := range memStore.secrets {
+				apiKeys[k] = v
+			}
+			memStore.mu.RUnlock()
+		}
+		
+		authConfig := &AuthConfig{
+			EnableAPIKeyAuth: true,
+			APIKeys:          apiKeys,
+		}
+		authInterceptor, err := NewAuthInterceptor(authConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create auth interceptor: %w", err)
+		}
+		
+		// Wrap with audit logging if available
+		if auditLogger != nil {
+			auditAuthInterceptor := NewAuditAuthInterceptor(authInterceptor, auditLogger)
+			unaryInterceptors = append(unaryInterceptors, auditAuthInterceptor.UnaryInterceptor())
+			streamInterceptors = append(streamInterceptors, authInterceptor.StreamInterceptor())
+		} else {
+			unaryInterceptors = append(unaryInterceptors, authInterceptor.UnaryInterceptor())
+			streamInterceptors = append(streamInterceptors, authInterceptor.StreamInterceptor())
+		}
 		log.Printf("Authentication interceptor enabled")
 	}
 
@@ -86,9 +164,26 @@ func (s *GRPCServer) Start(config ServerConfig) error {
 			burstSize = defaultBurstSize
 		}
 		rateLimiter := NewRateLimitInterceptor(config.RateLimitPerSecond, burstSize)
-		opts = append(opts, grpc.UnaryInterceptor(rateLimiter.UnaryInterceptor()))
-		opts = append(opts, grpc.StreamInterceptor(rateLimiter.StreamInterceptor()))
+		
+		// Wrap with audit logging if available
+		if auditLogger != nil {
+			auditRateInterceptor := NewAuditRateLimitInterceptor(rateLimiter, auditLogger)
+			unaryInterceptors = append(unaryInterceptors, auditRateInterceptor.UnaryInterceptor())
+			streamInterceptors = append(streamInterceptors, rateLimiter.StreamInterceptor())
+		} else {
+			unaryInterceptors = append(unaryInterceptors, rateLimiter.UnaryInterceptor())
+			streamInterceptors = append(streamInterceptors, rateLimiter.StreamInterceptor())
+		}
 		log.Printf("Rate limiting enabled: %d requests/sec, burst: %d", config.RateLimitPerSecond, burstSize)
+	}
+
+	// Chain all unary interceptors together - order matters!
+	// Order: Audit -> Auth -> RateLimit
+	if len(unaryInterceptors) > 0 {
+		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
+	}
+	if len(streamInterceptors) > 0 {
+		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
 	}
 
 	// Create the gRPC server
@@ -105,6 +200,13 @@ func (s *GRPCServer) Start(config ServerConfig) error {
 	}
 
 	log.Printf("gRPC server starting on port %d (TLS: %v)", config.Port, config.EnableTLS)
+	
+	// Signal that server is ready (for test synchronization)
+	// This is used by tests to avoid race conditions between Start and Stop
+	if config.readyCh != nil {
+		close(config.readyCh)
+	}
+	
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}

@@ -74,9 +74,12 @@ func NewBloomFSM(bloomFilter *bloom.CountingBloomFilter, walEncryptor *wal.WALEn
 // Apply applies a Raft log entry to the FSM.
 // This implements the raft.FSM interface.
 //
+// IMPORTANT: This is the single source of truth for FSM state changes.
+// All state modifications MUST go through this method to ensure consistency.
+//
 // Integration with WAL:
 // 1. Parse the command from log data
-// 2. Apply to Bloom filter
+// 2. Apply to Bloom filter (with lock protection)
 // 3. Write to WAL for persistence (if enabled)
 // 4. Return result
 func (f *BloomFSM) Apply(log *raft.Log) interface{} {

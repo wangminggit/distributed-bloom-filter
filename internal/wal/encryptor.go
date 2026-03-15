@@ -98,6 +98,12 @@ func (k *K8sSecretLoader) LoadKey() ([]byte, uint32, error) {
 }
 
 // WALWriter WAL 写入器 (支持滚动)
+// 
+// 锁约定 (Lock Convention):
+// - w.mu 保护所有可变状态 (currentFile, currentSize, currentIndex 等)
+// - 所有公共方法 (Write, Close) 在入口处获取锁
+// - doRollFile() 是内部方法，调用者必须已持有 w.mu 锁
+// - 避免递归锁：doRollFile() 不会尝试获取 w.mu
 type WALWriter struct {
 	mu sync.Mutex
 
@@ -476,9 +482,9 @@ func (w *WALWriter) Write(data []byte) error {
 	}
 
 	if needRoll {
-		// P1-4 修复：rollFile 必须在锁保护下执行
+		// P1-4 修复：doRollFile 必须在锁保护下执行
 		// 关闭当前文件、创建新文件、清理旧文件都必须是原子的
-		if err := w.rollFileLocked(); err != nil {
+		if err := w.doRollFile(); err != nil {
 			return err
 		}
 	}
@@ -494,16 +500,11 @@ func (w *WALWriter) Write(data []byte) error {
 	return nil
 }
 
-// rollFile 滚动文件（公共方法，获取自己的锁）
-func (w *WALWriter) rollFile() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.rollFileLocked()
-}
-
-// rollFileLocked 滚动文件（内部方法，假设调用者已持有锁）
+// doRollFile 滚动文件（内部方法，调用者必须已持有 w.mu 锁）
+// 锁约定：此方法假设调用者已经持有 w.mu 锁，不会重复获取
+// 使用场景：仅在 Write() 和其他已持有锁的内部方法中调用
 // P1-4 修复：确保整个滚动过程在锁保护下原子执行
-func (w *WALWriter) rollFileLocked() error {
+func (w *WALWriter) doRollFile() error {
 	// 关闭当前文件
 	if w.currentFile != nil {
 		if err := w.currentFile.Close(); err != nil {

@@ -1,0 +1,34 @@
+# Trusted Proxies Configuration
+# 
+# This file defines the list of trusted proxy IP addresses and CIDR ranges.
+# Only requests originating from these proxies will have X-Forwarded-For
+# and X-Real-IP headers trusted for client IP extraction.
+#
+# Security: If a request comes from an untrusted source with these headers,
+# they will be ignored to prevent IP spoofing attacks.
+#
+# Default behavior (if this file is empty or not loaded):
+# - Trust localhost (127.0.0.0/8, ::1/128)
+# - Trust private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+# - Trust unique local addresses (fc00::/7)
+# - Trust link-local addresses (fe80::/10)
+
+trusted_proxies:
+  # Localhost
+  - "127.0.0.0/8"
+  - "::1/128"
+  
+  # Private networks (RFC 1918)
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  
+  # IPv6 private networks
+  - "fc00::/7"      # Unique local address
+  - "fe80::/10"     # Link-local address
+  
+  # Add your load balancers, reverse proxies, or CDN IPs below:
+  # Example:
+  # - "203.0.113.10"        # Single IP
+  # - "203.0.113.0/24"      # CIDR range
+  # - "198.51.100.50"       # Load balancer IP

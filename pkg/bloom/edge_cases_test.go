@@ -259,8 +259,8 @@ func TestSerialize_EmptyFilter(t *testing.T) {
 
 	data := cbf.Serialize()
 
-	// Should have 8 bytes header + 100 bytes counters
-	expectedLen := 8 + 100
+	// Should have 8 bytes header + 100 bytes counters + 4 bytes CRC32 checksum
+	expectedLen := 8 + 100 + 4
 	if len(data) != expectedLen {
 		t.Errorf("Expected serialized length=%d, got %d", expectedLen, len(data))
 	}
