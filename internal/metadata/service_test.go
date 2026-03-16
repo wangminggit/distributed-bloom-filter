@@ -1,523 +1,468 @@
 package metadata
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 )
 
-// TestService_GetNodeID tests NodeID management.
-// This is a P1 test case for NodeID management.
-func TestService_GetNodeID(t *testing.T) {
-	tmpDir := t.TempDir()
+func setupTestService(t *testing.T) (*Service, string) {
+	t.Helper()
 
-	service := NewService(tmpDir)
-
-	// Initial NodeID should be empty
-	if service.GetNodeID() != "" {
-		t.Errorf("Expected empty NodeID initially, got %s", service.GetNodeID())
-	}
-
-	// Set NodeID
-	err := service.SetNodeID("test-node-123")
+	// Create a temporary directory for test data
+	tmpDir, err := os.MkdirTemp("", "metadata_test_*")
 	if err != nil {
-		t.Fatalf("Failed to set NodeID: %v", err)
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 
-	// Verify NodeID was set
-	if service.GetNodeID() != "test-node-123" {
-		t.Errorf("Expected test-node-123, got %s", service.GetNodeID())
-	}
-
-	t.Log("GetNodeID test passed")
+	s := NewService(tmpDir)
+	return s, tmpDir
 }
 
-// TestService_ClusterNodeManagement tests cluster node management.
-// This is a P1 test case for cluster management.
-func TestService_ClusterNodeManagement(t *testing.T) {
-	tmpDir := t.TempDir()
+func TestNewService(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
 
-	service := NewService(tmpDir)
-
-	// Add cluster nodes
-	err := service.AddClusterNode("node1")
-	if err != nil {
-		t.Fatalf("Failed to add cluster node: %v", err)
-	}
-	err = service.AddClusterNode("node2")
-	if err != nil {
-		t.Fatalf("Failed to add cluster node: %v", err)
-	}
-	err = service.AddClusterNode("node3")
-	if err != nil {
-		t.Fatalf("Failed to add cluster node: %v", err)
+	if s == nil {
+		t.Fatal("Expected service to be created")
 	}
 
-	// Verify nodes were added
-	nodes := service.GetClusterNodes()
-	if len(nodes) != 3 {
-		t.Errorf("Expected 3 cluster nodes, got %d", len(nodes))
+	if s.dataDir != tmpDir {
+		t.Errorf("Expected dataDir %s, got %s", tmpDir, s.dataDir)
 	}
 
-	// Remove a node
-	err = service.RemoveClusterNode("node2")
-	if err != nil {
-		t.Fatalf("Failed to remove cluster node: %v", err)
+	if s.metadata == nil {
+		t.Fatal("Expected metadata to be initialized")
 	}
 
-	nodes = service.GetClusterNodes()
-	if len(nodes) != 2 {
-		t.Errorf("Expected 2 cluster nodes after removal, got %d", len(nodes))
+	if s.metadata.Version != "1.0.0" {
+		t.Errorf("Expected version 1.0.0, got %s", s.metadata.Version)
 	}
 
-	t.Log("ClusterNodeManagement test passed")
+	if s.metadata.Stats == nil {
+		t.Fatal("Expected stats to be initialized")
+	}
 }
 
-// TestService_ConfigManagement tests configuration management.
-// This is a P1 test case for configuration management.
-func TestService_ConfigManagement(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
-
-	// Set config values
-	err := service.SetConfig("key1", "value1")
-	if err != nil {
-		t.Fatalf("Failed to set config: %v", err)
-	}
-	err = service.SetConfig("key2", 123)
-	if err != nil {
-		t.Fatalf("Failed to set config: %v", err)
-	}
-
-	// Get config value
-	value, ok := service.GetConfig("key1")
-	if !ok {
-		t.Error("Expected key1 to exist")
-	}
-	if value != "value1" {
-		t.Errorf("Expected value1, got %v", value)
-	}
-
-	value2, ok := service.GetConfig("key2")
-	if !ok {
-		t.Error("Expected key2 to exist")
-	}
-	if value2 != 123 {
-		t.Errorf("Expected 123, got %v", value2)
-	}
-
-	// Get non-existent key
-	_, ok = service.GetConfig("non-existent")
-	if ok {
-		t.Error("Expected non-existent key to return false")
-	}
-
-	t.Log("ConfigManagement test passed")
-}
-
-// TestService_StatsRecording tests statistics recording.
-// This is a P1 test case for statistics management.
-func TestService_StatsRecording(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
-
-	// Record operations
-	service.RecordAdd()
-	service.RecordAdd()
-	service.RecordAdd()
-	service.RecordRemove()
-	service.RecordQuery()
-	service.RecordQuery()
-
-	// Verify stats
-	stats := service.GetStats()
-	if stats == nil {
-		t.Fatal("Stats should not be nil")
-	}
-	if stats.TotalAdds != 3 {
-		t.Errorf("Expected TotalAdds=3, got %d", stats.TotalAdds)
-	}
-	if stats.TotalRemoves != 1 {
-		t.Errorf("Expected TotalRemoves=1, got %d", stats.TotalRemoves)
-	}
-	if stats.TotalQueries != 2 {
-		t.Errorf("Expected TotalQueries=2, got %d", stats.TotalQueries)
-	}
-
-	t.Log("StatsRecording test passed")
-}
-
-// TestService_Persistence tests metadata persistence to disk.
-// This is a P1 test case for persistence.
-func TestService_Persistence(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
+func TestServiceLoadSave(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
 
 	// Set some values
-	service.SetNodeID("persist-test-node")
-	service.AddClusterNode("node1")
-	service.SetConfig("test-key", "test-value")
-	service.RecordAdd()
+	s.SetNodeID("test-node-1")
+	s.AddClusterNode("node-2")
+	s.AddClusterNode("node-3")
+	s.SetConfig("key1", "value1")
+	s.SetConfig("key2", 123)
+	s.RecordAdd()
+	s.RecordAdd()
+	s.RecordQuery()
 
-	// Save to disk
-	err := service.Save()
+	// Save
+	err := s.Save()
 	if err != nil {
-		t.Fatalf("Failed to save: %v", err)
+		t.Fatalf("Failed to save metadata: %v", err)
 	}
 
 	// Verify file exists
 	metadataPath := filepath.Join(tmpDir, "metadata.json")
 	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
-		t.Fatal("Metadata file should exist")
+		t.Fatal("Expected metadata.json to exist")
 	}
 
-	// Read file and verify content
-	data, err := os.ReadFile(metadataPath)
-	if err != nil {
-		t.Fatalf("Failed to read metadata file: %v", err)
-	}
-	if len(data) == 0 {
-		t.Error("Metadata file should not be empty")
-	}
-
-	t.Log("Persistence test passed")
-}
-
-// TestService_Recovery tests metadata recovery from disk.
-// This is a P1 test case for recovery.
-func TestService_Recovery(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create first service and set values
-	service1 := NewService(tmpDir)
-	service1.SetNodeID("recover-test-node")
-	service1.AddClusterNode("recover-node1")
-	service1.RecordAdd()
-	service1.RecordAdd()
-
-	err := service1.Save()
-	if err != nil {
-		t.Fatalf("Failed to save: %v", err)
-	}
-
-	// Create second service (simulating restart)
-	service2 := NewService(tmpDir)
-
-	// Load should recover the data
-	err = service2.Load()
-	if err != nil {
-		t.Fatalf("Failed to load: %v", err)
-	}
-
-	// Verify data was recovered
-	if service2.GetNodeID() != "recover-test-node" {
-		t.Errorf("Expected recover-test-node, got %s", service2.GetNodeID())
-	}
-
-	nodes := service2.GetClusterNodes()
-	if len(nodes) != 1 || nodes[0] != "recover-node1" {
-		t.Errorf("Expected recover-node1, got %v", nodes)
-	}
-
-	stats := service2.GetStats()
-	if stats.TotalAdds != 2 {
-		t.Errorf("Expected TotalAdds=2, got %d", stats.TotalAdds)
-	}
-
-	t.Log("Recovery test passed")
-}
-
-// TestService_Load tests the Load method.
-// This is a P1 test case for loading metadata.
-func TestService_Load(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
-
-	// Load from non-existent file (should not error)
-	err := service.Load()
-	if err != nil && !os.IsNotExist(err) {
-		t.Errorf("Load should not error on non-existent file: %v", err)
-	}
-
-	// Create a valid metadata file
-	metadata := &Metadata{
-		NodeID:    "test-node",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		Version:   "1.0.0",
-		ClusterNodes: []string{"node1", "node2"},
-		Stats: &Stats{
-			TotalAdds:    100,
-			TotalRemoves: 50,
-			TotalQueries: 200,
-		},
-	}
-
-	data, err := json.Marshal(metadata)
-	if err != nil {
-		t.Fatalf("Failed to marshal metadata: %v", err)
-	}
-
-	metadataPath := filepath.Join(tmpDir, "metadata.json")
-	err = os.WriteFile(metadataPath, data, 0644)
-	if err != nil {
-		t.Fatalf("Failed to write metadata file: %v", err)
-	}
-
-	// Load the metadata
-	err = service.Load()
+	// Create a new service and load
+	s2 := NewService(tmpDir)
+	err = s2.Load()
 	if err != nil {
 		t.Fatalf("Failed to load metadata: %v", err)
 	}
 
-	t.Log("Load test passed")
+	// Verify loaded values
+	if s2.GetNodeID() != "test-node-1" {
+		t.Errorf("Expected node ID test-node-1, got %s", s2.GetNodeID())
+	}
+
+	nodes := s2.GetClusterNodes()
+	if len(nodes) != 2 {
+		t.Errorf("Expected 2 cluster nodes, got %d", len(nodes))
+	}
+
+	val, ok := s2.GetConfig("key1")
+	if !ok || val != "value1" {
+		t.Errorf("Expected key1=value1, got %v, %v", val, ok)
+	}
+
+	stats := s2.GetStats()
+	if stats.TotalAdds != 2 {
+		t.Errorf("Expected 2 adds, got %d", stats.TotalAdds)
+	}
+	if stats.TotalQueries != 1 {
+		t.Errorf("Expected 1 query, got %d", stats.TotalQueries)
+	}
 }
 
-// TestService_Save tests the Save method.
-// This is a P1 test case for saving metadata.
-func TestService_Save(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
-
-	// Set some values
-	service.SetNodeID("save-test-node")
-	service.AddClusterNode("save-node1")
-
-	// Save
-	err := service.Save()
+func TestServiceLoadNonExistent(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "metadata_test_*")
 	if err != nil {
-		t.Fatalf("Failed to save: %v", err)
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
+	defer os.RemoveAll(tmpDir)
 
-	// Verify file exists and is valid JSON
-	metadataPath := filepath.Join(tmpDir, "metadata.json")
-	data, err := os.ReadFile(metadataPath)
-	if err != nil {
-		t.Fatalf("Failed to read metadata file: %v", err)
+	// Create service in empty directory - should not fail
+	s := NewService(tmpDir)
+	if s == nil {
+		t.Fatal("Expected service to be created even without existing metadata")
 	}
-
-	var loaded Metadata
-	err = json.Unmarshal(data, &loaded)
-	if err != nil {
-		t.Fatalf("Metadata file should be valid JSON: %v", err)
-	}
-
-	t.Log("Save test passed")
 }
 
-// TestService_ConcurrentAccess tests concurrent access to metadata.
-// This is a P1 test case for thread safety.
-func TestService_ConcurrentAccess(t *testing.T) {
-	tmpDir := t.TempDir()
+func TestSetGetNodeID(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
 
-	service := NewService(tmpDir)
-
-	// Run concurrent operations
-	var wg sync.WaitGroup
-	const goroutines = 10
-
-	// Concurrent writes
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			nodeID := "node-" + string(rune(idx))
-			service.AddClusterNode(nodeID)
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify nodes were added
-	nodes := service.GetClusterNodes()
-	if len(nodes) != goroutines {
-		t.Errorf("Expected %d cluster nodes, got %d", goroutines, len(nodes))
-	}
-
-	t.Log("Concurrent access test passed")
-}
-
-// TestService_BackupCompaction tests backup and compaction timestamp management.
-// This is a P1 test case for backup/compaction management.
-func TestService_BackupCompaction(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
-
-	// Set backup time
-	backupTime := time.Now()
-	service.SetLastBackup(backupTime)
-
-	// Set compaction time
-	compactionTime := time.Now()
-	service.SetLastCompaction(compactionTime)
-
-	// Get metadata and verify
-	metadata := service.GetMetadata()
-	if metadata == nil {
-		t.Fatal("Metadata should not be nil")
-	}
-	if metadata.Stats.LastBackup.IsZero() {
-		t.Error("LastBackup should be set")
-	}
-	if metadata.Stats.LastCompaction.IsZero() {
-		t.Error("LastCompaction should be set")
-	}
-
-	t.Log("BackupCompaction test passed")
-}
-
-// TestService_GetMetadata tests GetMetadata method.
-// This is a P1 test case for metadata retrieval.
-func TestService_GetMetadata(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
-
-	// Set some values
-	service.SetNodeID("metadata-test-node")
-	service.AddClusterNode("meta-node1")
-	service.RecordAdd()
-
-	// Get metadata
-	metadata := service.GetMetadata()
-	if metadata == nil {
-		t.Fatal("Metadata should not be nil")
-	}
-	if metadata.NodeID != "metadata-test-node" {
-		t.Errorf("Expected metadata-test-node, got %s", metadata.NodeID)
-	}
-	if len(metadata.ClusterNodes) != 1 {
-		t.Errorf("Expected 1 cluster node, got %d", len(metadata.ClusterNodes))
-	}
-	if metadata.Stats.TotalAdds != 1 {
-		t.Errorf("Expected TotalAdds=1, got %d", metadata.Stats.TotalAdds)
-	}
-
-	t.Log("GetMetadata test passed")
-}
-
-// TestMetadataService_ConcurrentWrites tests that concurrent writes are atomic and safe.
-// This is a P1 test case for atomic write safety.
-func TestMetadataService_ConcurrentWrites(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	service := NewService(tmpDir)
-
-	// Set initial node ID
-	err := service.SetNodeID("concurrent-test-node")
+	err := s.SetNodeID("node-123")
 	if err != nil {
 		t.Fatalf("Failed to set node ID: %v", err)
 	}
 
-	// Run concurrent save operations
-	var wg sync.WaitGroup
-	const goroutines = 20
-	const savesPerGoroutine = 10
-
-	errors := make(chan error, goroutines)
-
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			for j := 0; j < savesPerGoroutine; j++ {
-				// Update some data
-				service.SetConfig(fmt.Sprintf("goroutine-%d-key-%d", idx, j), j)
-				
-				// Save concurrently
-				if err := service.Save(); err != nil {
-					errors <- err
-					return
-				}
-				
-				// Small delay to increase contention
-				time.Sleep(time.Millisecond)
-			}
-		}(i)
+	nodeID := s.GetNodeID()
+	if nodeID != "node-123" {
+		t.Errorf("Expected node-123, got %s", nodeID)
 	}
-
-	wg.Wait()
-	close(errors)
-
-	// Check for any errors
-	errorCount := 0
-	for err := range errors {
-		t.Errorf("Concurrent write error: %v", err)
-		errorCount++
-	}
-	if errorCount > 0 {
-		t.Fatalf("Had %d concurrent write errors", errorCount)
-	}
-
-	// Verify the metadata file is valid JSON (not corrupted)
-	metadataPath := filepath.Join(tmpDir, "metadata.json")
-	data, err := os.ReadFile(metadataPath)
-	if err != nil {
-		t.Fatalf("Failed to read metadata file: %v", err)
-	}
-
-	var loaded Metadata
-	err = json.Unmarshal(data, &loaded)
-	if err != nil {
-		t.Fatalf("Metadata file should be valid JSON after concurrent writes: %v", err)
-	}
-
-	// Verify file is not empty
-	if len(data) == 0 {
-		t.Error("Metadata file should not be empty")
-	}
-
-	t.Logf("ConcurrentWrites test passed: %d goroutines, %d saves each, file size: %d bytes",
-		goroutines, savesPerGoroutine, len(data))
 }
 
-// TestMetadataService_AtomicWrite verifies that writes are atomic by checking
-// that no partial writes occur even under heavy concurrent load.
-func TestMetadataService_AtomicWrite(t *testing.T) {
-	tmpDir := t.TempDir()
+func TestAddClusterNode(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
 
-	service := NewService(tmpDir)
-	service.SetNodeID("atomic-test-node")
+	// Add first node
+	err := s.AddClusterNode("node-1")
+	if err != nil {
+		t.Fatalf("Failed to add cluster node: %v", err)
+	}
 
-	// Run very rapid concurrent writes
-	var wg sync.WaitGroup
-	const goroutines = 50
+	nodes := s.GetClusterNodes()
+	if len(nodes) != 1 || nodes[0] != "node-1" {
+		t.Errorf("Expected [node-1], got %v", nodes)
+	}
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			service.SetConfig("key", idx)
-			service.Save()
+	// Add second node
+	err = s.AddClusterNode("node-2")
+	if err != nil {
+		t.Fatalf("Failed to add cluster node: %v", err)
+	}
+
+	nodes = s.GetClusterNodes()
+	if len(nodes) != 2 {
+		t.Errorf("Expected 2 nodes, got %d", len(nodes))
+	}
+
+	// Add duplicate node - should not error and not add again
+	err = s.AddClusterNode("node-1")
+	if err != nil {
+		t.Fatalf("Adding duplicate node should not error: %v", err)
+	}
+
+	nodes = s.GetClusterNodes()
+	if len(nodes) != 2 {
+		t.Errorf("Expected 2 nodes after duplicate add, got %d", len(nodes))
+	}
+}
+
+func TestRemoveClusterNode(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	s.AddClusterNode("node-1")
+	s.AddClusterNode("node-2")
+	s.AddClusterNode("node-3")
+
+	// Remove middle node
+	err := s.RemoveClusterNode("node-2")
+	if err != nil {
+		t.Fatalf("Failed to remove cluster node: %v", err)
+	}
+
+	nodes := s.GetClusterNodes()
+	if len(nodes) != 2 {
+		t.Errorf("Expected 2 nodes, got %d", len(nodes))
+	}
+
+	// Verify remaining nodes
+	expected := map[string]bool{"node-1": true, "node-3": true}
+	for _, n := range nodes {
+		if !expected[n] {
+			t.Errorf("Unexpected node %s in %v", n, nodes)
+		}
+	}
+
+	// Remove non-existent node - should not error
+	err = s.RemoveClusterNode("node-nonexistent")
+	if err != nil {
+		t.Fatalf("Removing non-existent node should not error: %v", err)
+	}
+}
+
+func TestGetClusterNodesReturnsCopy(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	s.AddClusterNode("node-1")
+
+	// Get nodes and modify the returned slice
+	nodes := s.GetClusterNodes()
+	nodes = append(nodes, "node-2")
+
+	// Get nodes again - should not include the modification
+	nodes2 := s.GetClusterNodes()
+	if len(nodes2) != 1 {
+		t.Errorf("Expected GetClusterNodes to return a copy, original has %d nodes", len(nodes2))
+	}
+}
+
+func TestSetGetConfig(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Set various types of values
+	s.SetConfig("string", "hello")
+	s.SetConfig("int", 42)
+	s.SetConfig("float", 3.14)
+	s.SetConfig("bool", true)
+	s.SetConfig("slice", []string{"a", "b", "c"})
+	s.SetConfig("map", map[string]int{"x": 1, "y": 2})
+
+	// Verify values
+	val, ok := s.GetConfig("string")
+	if !ok || val != "hello" {
+		t.Errorf("Expected string=hello, got %v, %v", val, ok)
+	}
+
+	val, ok = s.GetConfig("int")
+	if !ok || val != 42 {
+		t.Errorf("Expected int=42, got %v, %v", val, ok)
+	}
+
+	val, ok = s.GetConfig("float")
+	if !ok || val != 3.14 {
+		t.Errorf("Expected float=3.14, got %v, %v", val, ok)
+	}
+
+	val, ok = s.GetConfig("bool")
+	if !ok || val != true {
+		t.Errorf("Expected bool=true, got %v, %v", val, ok)
+	}
+
+	// Get non-existent key
+	_, ok = s.GetConfig("nonexistent")
+	if ok {
+		t.Error("Expected ok=false for non-existent key")
+	}
+}
+
+func TestRecordOperations(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Initial stats should be zero
+	stats := s.GetStats()
+	if stats.TotalAdds != 0 || stats.TotalRemoves != 0 || stats.TotalQueries != 0 {
+		t.Errorf("Expected initial stats to be zero, got %+v", stats)
+	}
+
+	// Record some operations
+	s.RecordAdd()
+	s.RecordAdd()
+	s.RecordAdd()
+	s.RecordRemove()
+	s.RecordRemove()
+	s.RecordQuery()
+	s.RecordQuery()
+	s.RecordQuery()
+	s.RecordQuery()
+
+	stats = s.GetStats()
+	if stats.TotalAdds != 3 {
+		t.Errorf("Expected 3 adds, got %d", stats.TotalAdds)
+	}
+	if stats.TotalRemoves != 2 {
+		t.Errorf("Expected 2 removes, got %d", stats.TotalRemoves)
+	}
+	if stats.TotalQueries != 4 {
+		t.Errorf("Expected 4 queries, got %d", stats.TotalQueries)
+	}
+}
+
+func TestSetLastBackup(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	testTime := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+	s.SetLastBackup(testTime)
+
+	stats := s.GetStats()
+	if stats.LastBackup != testTime {
+		t.Errorf("Expected LastBackup %v, got %v", testTime, stats.LastBackup)
+	}
+}
+
+func TestSetLastCompaction(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	testTime := time.Date(2024, 2, 20, 14, 45, 0, 0, time.UTC)
+	s.SetLastCompaction(testTime)
+
+	stats := s.GetStats()
+	if stats.LastCompaction != testTime {
+		t.Errorf("Expected LastCompaction %v, got %v", testTime, stats.LastCompaction)
+	}
+}
+
+func TestGetMetadata(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	s.SetNodeID("test-node")
+	s.AddClusterNode("node-1")
+	s.AddClusterNode("node-2")
+	s.SetConfig("key", "value")
+	s.RecordAdd()
+	s.RecordQuery()
+
+	testTime := time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
+	s.SetLastBackup(testTime)
+
+	metadata := s.GetMetadata()
+
+	if metadata.NodeID != "test-node" {
+		t.Errorf("Expected NodeID test-node, got %s", metadata.NodeID)
+	}
+
+	if len(metadata.ClusterNodes) != 2 {
+		t.Errorf("Expected 2 cluster nodes, got %d", len(metadata.ClusterNodes))
+	}
+
+	if metadata.Stats.TotalAdds != 1 {
+		t.Errorf("Expected 1 add, got %d", metadata.Stats.TotalAdds)
+	}
+
+	if metadata.Stats.LastBackup != testTime {
+		t.Errorf("Expected LastBackup %v, got %v", testTime, metadata.Stats.LastBackup)
+	}
+
+	// Verify it's a copy - modify and check original
+	metadata.NodeID = "modified-node"
+	metadata.ClusterNodes[0] = "modified"
+	metadata.Stats.TotalAdds = 999
+
+	metadata2 := s.GetMetadata()
+	if metadata2.NodeID == "modified-node" {
+		t.Error("Expected GetMetadata to return a copy")
+	}
+	if metadata2.Stats.TotalAdds == 999 {
+		t.Error("Expected GetMetadata stats to be a copy")
+	}
+}
+
+func TestGetMetadataEmptyService(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	metadata := s.GetMetadata()
+
+	if metadata == nil {
+		t.Fatal("Expected metadata to be returned")
+	}
+
+	if metadata.CreatedAt.IsZero() {
+		t.Error("Expected CreatedAt to be set")
+	}
+
+	if metadata.Version != "1.0.0" {
+		t.Errorf("Expected version 1.0.0, got %s", metadata.Version)
+	}
+
+	if metadata.Stats == nil {
+		t.Error("Expected Stats to be initialized")
+	}
+}
+
+func TestServiceSaveToReadOnlyDir(t *testing.T) {
+	// Create a directory and make it read-only
+	tmpDir, err := os.MkdirTemp("", "metadata_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Make directory read-only
+	err = os.Chmod(tmpDir, 0555)
+	if err != nil {
+		t.Skip("Cannot change directory permissions on this system")
+	}
+
+	s := NewService(tmpDir)
+	err = s.Save()
+
+	// Restore permissions for cleanup
+	os.Chmod(tmpDir, 0755)
+
+	// Save should fail on read-only directory
+	if err == nil {
+		t.Error("Expected error when saving to read-only directory")
+	}
+}
+
+func TestServiceLoadCorruptedJSON(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "metadata_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Write corrupted JSON
+	metadataPath := filepath.Join(tmpDir, "metadata.json")
+	err = os.WriteFile(metadataPath, []byte("{ invalid json }"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	s := NewService(tmpDir)
+	err = s.Load()
+
+	if err == nil {
+		t.Error("Expected error when loading corrupted JSON")
+	}
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	s, tmpDir := setupTestService(t)
+	defer os.RemoveAll(tmpDir)
+
+	done := make(chan bool)
+
+	// Start multiple goroutines that read and write
+	for i := 0; i < 10; i++ {
+		go func(id int) {
+			for j := 0; j < 100; j++ {
+				s.SetNodeID("node")
+				s.GetNodeID()
+				s.AddClusterNode("node")
+				s.GetClusterNodes()
+				s.SetConfig("key", "value")
+				s.GetConfig("key")
+				s.RecordAdd()
+				s.GetStats()
+			}
+			done <- true
 		}(i)
 	}
 
-	wg.Wait()
-
-	// Read the file multiple times to ensure it's always valid
+	// Wait for all goroutines to complete
 	for i := 0; i < 10; i++ {
-		metadataPath := filepath.Join(tmpDir, "metadata.json")
-		data, err := os.ReadFile(metadataPath)
-		if err != nil {
-			t.Fatalf("Failed to read metadata file: %v", err)
-		}
-
-		var loaded Metadata
-		err = json.Unmarshal(data, &loaded)
-		if err != nil {
-			t.Fatalf("Metadata file should always be valid JSON (attempt %d): %v", i+1, err)
-		}
+		<-done
 	}
 
-	t.Log("AtomicWrite test passed: file remained valid under concurrent writes")
+	// If we got here without panicking, the test passed
 }

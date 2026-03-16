@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dbf
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - statefulset.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - monitoring.yaml
+
+commonLabels:
+  app: distributed-bloom-filter
+  app.kubernetes.io/name: distributed-bloom-filter
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: yourorg/dbf
+    newTag: v0.1.0
+  - name: yourorg/dbf-gateway
+    newTag: v0.1.0
+
+configMapGenerator:
+  - name: dbf-config-override
+    behavior: merge
+    literals: []

@@ -4,18 +4,13 @@ package dbf;
 
 option go_package = "github.com/wangminggit/distributed-bloom-filter/api/proto";
 
-// AuthMetadata contains authentication information for each request.
-// This is used to verify the identity and integrity of the request.
+// AuthMetadata contains authentication information for API key-based auth.
 message AuthMetadata {
-  // api_key is the client's API key for authentication.
+  // ApiKey is the API key for authentication.
   string api_key = 1;
-  
-  // timestamp is the Unix timestamp (in seconds) when the request was created.
-  // Used to prevent replay attacks (requests older than 5 minutes are rejected).
+  // Timestamp is the Unix timestamp of the request.
   int64 timestamp = 2;
-  
-  // signature is the HMAC-SHA256 signature of the request.
-  // Format: base64_encode(HMAC-SHA256(api_key + timestamp + method_name + item_hash, secret))
+  // Signature is the HMAC-SHA256 signature.
   string signature = 3;
 }
 
@@ -42,11 +37,8 @@ service DBFService {
 
 // AddRequest is the request message for the Add RPC.
 message AddRequest {
-  // Authentication metadata for this request.
-  AuthMetadata auth = 1;
-  
   // The item to add to the Bloom filter.
-  bytes item = 2;
+  bytes item = 1;
 }
 
 // AddResponse is the response message for the Add RPC.
@@ -59,11 +51,8 @@ message AddResponse {
 
 // RemoveRequest is the request message for the Remove RPC.
 message RemoveRequest {
-  // Authentication metadata for this request.
-  AuthMetadata auth = 1;
-  
   // The item to remove from the Bloom filter.
-  bytes item = 2;
+  bytes item = 1;
 }
 
 // RemoveResponse is the response message for the Remove RPC.
@@ -76,11 +65,8 @@ message RemoveResponse {
 
 // ContainsRequest is the request message for the Contains RPC.
 message ContainsRequest {
-  // Authentication metadata for this request.
-  AuthMetadata auth = 1;
-  
   // The item to check in the Bloom filter.
-  bytes item = 2;
+  bytes item = 1;
 }
 
 // ContainsResponse is the response message for the Contains RPC.
@@ -93,11 +79,8 @@ message ContainsResponse {
 
 // BatchAddRequest is the request message for the BatchAdd RPC.
 message BatchAddRequest {
-  // Authentication metadata for this request.
-  AuthMetadata auth = 1;
-  
   // The items to add to the Bloom filter.
-  repeated bytes items = 2;
+  repeated bytes items = 1;
 }
 
 // BatchAddResponse is the response message for the BatchAdd RPC.
@@ -112,11 +95,8 @@ message BatchAddResponse {
 
 // BatchContainsRequest is the request message for the BatchContains RPC.
 message BatchContainsRequest {
-  // Authentication metadata for this request.
-  AuthMetadata auth = 1;
-  
   // The items to check in the Bloom filter.
-  repeated bytes items = 2;
+  repeated bytes items = 1;
 }
 
 // BatchContainsResponse is the response message for the BatchContains RPC.
@@ -129,8 +109,7 @@ message BatchContainsResponse {
 
 // GetStatsRequest is the request message for the GetStats RPC.
 message GetStatsRequest {
-  // Authentication metadata for this request.
-  AuthMetadata auth = 1;
+  // Empty message, no parameters needed.
 }
 
 // GetStatsResponse is the response message for the GetStats RPC.

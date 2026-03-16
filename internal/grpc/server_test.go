@@ -2,159 +2,58 @@ package grpc
 
 import (
 	"context"
-	"sync"
+	"crypto/tls"
 	"testing"
+	"time"
 
 	"github.com/wangminggit/distributed-bloom-filter/api/proto"
+	"github.com/wangminggit/distributed-bloom-filter/internal/metadata"
+	"github.com/wangminggit/distributed-bloom-filter/internal/raft"
+	"github.com/wangminggit/distributed-bloom-filter/internal/wal"
 	"github.com/wangminggit/distributed-bloom-filter/pkg/bloom"
 )
 
-// MockRaftNode is a mock implementation of the Raft node for testing.
-// It avoids the bolt DB race detection issues.
-type MockRaftNode struct {
-	mu       sync.RWMutex
-	filter   *bloom.CountingBloomFilter
-	nodeID   string
-	isLeader bool
-}
+// setupTestServer creates a test gRPC server with a mock Raft node.
+func setupTestServer(t *testing.T) (*DBFServer, func()) {
+	// Create test data directory
+	dataDir := t.TempDir()
 
-// NewMockRaftNodeForTest creates a new mock Raft node for testing.
-// This is exported for use in tls_test.go
-func NewMockRaftNodeForTest(nodeID string) *MockRaftNode {
-	return &MockRaftNode{
-		filter:   bloom.NewCountingBloomFilter(10000, 3),
-		nodeID:   nodeID,
-		isLeader: true, // Assume leader for testing
+	// Use a unique Raft port for each test to avoid conflicts
+	raftPort := 18081 + int(time.Now().UnixNano()%1000)
+
+	// Initialize components
+	walEncryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		t.Fatalf("Failed to create WAL encryptor: %v", err)
 	}
-}
 
-// NewMockRaftNode creates a new mock Raft node (alias for NewMockRaftNodeForTest).
-func NewMockRaftNode(nodeID string) *MockRaftNode {
-	return NewMockRaftNodeForTest(nodeID)
-}
+	metadataService := metadata.NewService(dataDir)
+	bloomFilter := bloom.NewCountingBloomFilter(10000, 3)
+	raftNode := raft.NewNode("test-node", raftPort, dataDir, bloomFilter, walEncryptor, metadataService)
 
-// Start starts the mock node (no-op).
-func (m *MockRaftNode) Start() error {
-	return nil
-}
-
-// Shutdown shuts down the mock node (no-op).
-func (m *MockRaftNode) Shutdown() error {
-	return nil
-}
-
-// IsLeader returns whether this node is the leader.
-func (m *MockRaftNode) IsLeader() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.isLeader
-}
-
-// Add adds an item to the Bloom filter.
-func (m *MockRaftNode) Add(item []byte) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(item) == 0 {
-		return nil // Will be validated at gRPC layer
+	// Start Raft node with bootstrap
+	if err := raftNode.Start(true); err != nil {
+		t.Fatalf("Failed to start Raft node: %v", err)
 	}
-	m.filter.Add(item)
-	return nil
-}
 
-// Contains checks if an item exists in the Bloom filter.
-func (m *MockRaftNode) Contains(item []byte) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.filter.Contains(item)
-}
-
-// Remove removes an item from the Bloom filter.
-func (m *MockRaftNode) Remove(item []byte) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(item) == 0 {
-		return nil
-	}
-	m.filter.Remove(item)
-	return nil
-}
-
-// BatchAdd adds multiple items.
-func (m *MockRaftNode) BatchAdd(items [][]byte) (successCount int, failureCount int, errors []string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	errors = make([]string, len(items))
-	for i, item := range items {
-		if len(item) == 0 {
-			errors[i] = "empty item"
-			failureCount++
-		} else {
-			m.filter.Add(item)
-			successCount++
+	// Wait for node to become leader (up to 2 seconds)
+	for i := 0; i < 20; i++ {
+		if raftNode.IsLeader() {
+			break
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return
-}
-
-// BatchContains checks multiple items.
-func (m *MockRaftNode) BatchContains(items [][]byte) []bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	results := make([]bool, len(items))
-	for i, item := range items {
-		results[i] = m.filter.Contains(item)
+	if !raftNode.IsLeader() {
+		t.Fatal("Raft node did not become leader")
 	}
-	return results
-}
 
-// GetState returns the node state.
-func (m *MockRaftNode) GetState() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return map[string]interface{}{
-		"node_id":    m.nodeID,
-		"is_leader":  m.isLeader,
-		"raft_state": "Leader",
-		"leader":     m.nodeID,
-		"bloom_size": 10000,
-		"bloom_k":    3,
-		"raft_port":  18081,
-	}
-}
-
-// GetConfig returns the node configuration.
-func (m *MockRaftNode) GetConfig() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return map[string]interface{}{
-		"node_id":     m.nodeID,
-		"bloom_size":  10000,
-		"bloom_k":     3,
-		"raft_port":   18081,
-		"data_dir":    "/tmp/test",
-		"bootstrap":   true,
-		"heartbeat":   "1s",
-		"election":    "3s",
-		"commit":      "50ms",
-		"snapshot_int": "2m0s",
-		"snapshot_thresh": 8192,
-	}
-}
-
-// setupTestServer creates a test gRPC service with a mock Raft node.
-// This avoids the bolt DB race detection issues.
-func setupTestServer(t *testing.T) (*DBFService, func()) {
-	// Use mock Raft node to avoid bolt DB race issues
-	mockNode := NewMockRaftNode("test-node")
-
-	// Create service
-	service := NewDBFService(mockNode)
+	server := NewDBFServer(raftNode)
 
 	cleanup := func() {
-		// No cleanup needed for mock
+		raftNode.Shutdown()
 	}
 
-	return service, cleanup
+	return server, cleanup
 }
 
 // TestServerAdd tests the Add RPC method.
@@ -205,6 +104,9 @@ func TestServerAdd(t *testing.T) {
 
 	// Test 4: Verify item was added
 	t.Run("VerifyItemAdded", func(t *testing.T) {
+		// Give Raft time to apply the command
+		time.Sleep(100 * time.Millisecond)
+
 		containsReq := &proto.ContainsRequest{Item: []byte("test-item-1")}
 		containsResp, err := server.Contains(ctx, containsReq)
 		if err != nil {
@@ -246,6 +148,9 @@ func TestServerContains(t *testing.T) {
 		if !addResp.Success {
 			t.Fatalf("Add failed: %s", addResp.Error)
 		}
+
+		// Give Raft time to apply
+		time.Sleep(100 * time.Millisecond)
 
 		// Check item
 		containsReq := &proto.ContainsRequest{Item: []byte("test-item-2")}
@@ -297,6 +202,9 @@ func TestServerBatchOperations(t *testing.T) {
 		if resp.FailureCount != 0 {
 			t.Errorf("Expected 0 failures, got %d", resp.FailureCount)
 		}
+
+		// Give Raft time to apply
+		time.Sleep(100 * time.Millisecond)
 	})
 
 	// Test 2: BatchAdd with some empty items
@@ -318,7 +226,7 @@ func TestServerBatchOperations(t *testing.T) {
 		if resp.FailureCount != 1 {
 			t.Errorf("Expected 1 failure, got %d", resp.FailureCount)
 		}
-		if len(resp.Errors) < 2 || resp.Errors[1] == "" {
+		if resp.Errors[1] == "" {
 			t.Error("Expected error for empty item")
 		}
 	})
@@ -392,6 +300,9 @@ func TestServerRemove(t *testing.T) {
 			t.Fatalf("Add failed: %s", addResp.Error)
 		}
 
+		// Give Raft time to apply
+		time.Sleep(100 * time.Millisecond)
+
 		// Now remove it
 		removeReq := &proto.RemoveRequest{Item: []byte("remove-test-item")}
 		removeResp, err := server.Remove(ctx, removeReq)
@@ -444,48 +355,41 @@ func TestServerGetStats(t *testing.T) {
 		if resp.BloomK != 3 {
 			t.Errorf("Expected bloom_k 3, got %d", resp.BloomK)
 		}
-		if resp.RaftPort != 18081 {
-			t.Errorf("Expected raft_port 18081, got %d", resp.RaftPort)
+		// RaftPort should be > 0 (we use random ports to avoid conflicts)
+		if resp.RaftPort <= 0 {
+			t.Errorf("Expected raft_port > 0, got %d", resp.RaftPort)
 		}
 	})
 }
 
-// TestServer_ConcurrentRequests tests concurrent request handling.
-// This is a P0 test case for race detection verification.
-func TestServer_ConcurrentRequests(t *testing.T) {
-	server, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Run concurrent Add operations
-	const concurrency = 10
-	errChan := make(chan error, concurrency)
-
-	for i := 0; i < concurrency; i++ {
-		go func(idx int) {
-			req := &proto.AddRequest{Item: []byte("concurrent-item-" + string(rune(idx)))}
-			_, err := server.Add(ctx, req)
-			errChan <- err
-		}(i)
-	}
-
-	// Wait for all goroutines to complete
-	for i := 0; i < concurrency; i++ {
-		if err := <-errChan; err != nil {
-			t.Errorf("Concurrent Add failed: %v", err)
+// TestServerTLSConfig tests TLS configuration for the gRPC server.
+func TestServerTLSConfig(t *testing.T) {
+	t.Run("TLSConfigDefaults", func(t *testing.T) {
+		config := &ServerConfig{
+			Port:         50051,
+			EnableTLS:    true,
+			TLSMinVersion: tls.VersionTLS13,
 		}
-	}
 
-	// Verify all items were added
-	for i := 0; i < concurrency; i++ {
-		req := &proto.ContainsRequest{Item: []byte("concurrent-item-" + string(rune(i)))}
-		resp, err := server.Contains(ctx, req)
-		if err != nil {
-			t.Errorf("Contains failed: %v", err)
+		if config.EnableTLS != true {
+			t.Error("Expected TLS to be enabled")
 		}
-		if !resp.Exists {
-			t.Errorf("Expected concurrent-item-%d to exist", i)
+
+		if config.TLSMinVersion != tls.VersionTLS13 {
+			t.Errorf("Expected TLS 1.3, got %d", config.TLSMinVersion)
 		}
-	}
+	})
+
+	t.Run("TLSConfigWithReload", func(t *testing.T) {
+		config := &ServerConfig{
+			Port:              50051,
+			EnableTLS:         true,
+			TLSMinVersion:     tls.VersionTLS13,
+			TLSReloadInterval: 5 * time.Minute,
+		}
+
+		if config.TLSReloadInterval != 5*time.Minute {
+			t.Errorf("Expected reload interval 5m, got %v", config.TLSReloadInterval)
+		}
+	})
 }

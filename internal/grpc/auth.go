@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/wangminggit/distributed-bloom-filter/api/proto"
 )
 
 // APIMetadata contains authentication information for API key-based auth.
@@ -199,23 +198,6 @@ func (a *AuthInterceptor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// Try API key authentication first if enabled
 		if a.apiKeyEnabled {
-			// Try proto.AuthMetadata first (from generated protobuf types)
-			if authReq, ok := req.(interface{ GetAuth() *proto.AuthMetadata }); ok {
-				auth := authReq.GetAuth()
-				if auth != nil && auth.ApiKey != "" {
-					// Convert proto.AuthMetadata to APIMetadata
-					apiAuth := &APIMetadata{
-						ApiKey:    auth.ApiKey,
-						Timestamp: auth.Timestamp,
-						Signature: auth.Signature,
-					}
-					if err := a.validateAPIKeyAuth(ctx, apiAuth, info.FullMethod); err != nil {
-						return nil, err
-					}
-					return handler(ctx, req)
-				}
-			}
-			// Fall back to APIMetadata interface
 			if authReq, ok := req.(interface{ GetAuth() *APIMetadata }); ok {
 				auth := authReq.GetAuth()
 				if auth != nil && auth.ApiKey != "" {
@@ -271,11 +253,6 @@ func (a *AuthInterceptor) authenticate(ctx context.Context) error {
 	// If mTLS is enabled but validation failed
 	if a.config.EnableMTLS {
 		return status.Error(codes.Unauthenticated, "mTLS authentication required")
-	}
-
-	// If API key auth is enabled but we got here, it means the request didn't provide API key
-	if a.apiKeyEnabled {
-		return status.Error(codes.Unauthenticated, "API key authentication required")
 	}
 
 	return nil

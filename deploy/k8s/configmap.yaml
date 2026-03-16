@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dbf-config
+  namespace: dbf
+  labels:
+    app: distributed-bloom-filter
+data:
+  # Bloom Filter 配置
+  BLOOM_M: "240000000"        # 计数器数量 (2.4 亿)
+  BLOOM_K: "7"                 # 哈希函数数量
+  
+  # Raft 配置
+  RAFT_PORT: "8081"
+  RAFT_HEARTBEAT_TIMEOUT: "1000ms"
+  RAFT_ELECTION_TIMEOUT: "3000ms"
+  RAFT_COMMIT_TIMEOUT: "500ms"
+  
+  # gRPC 配置
+  GRPC_PORT: "50051"
+  GRPC_MAX_RECV_MSG_SIZE: "10485760"  # 10MB
+  GRPC_MAX_SEND_MSG_SIZE: "10485760"
+  
+  # WAL 配置
+  WAL_ENABLED: "true"
+  WAL_DIR: "/data/wal"
+  WAL_SEGMENT_SIZE: "67108864"  # 64MB
+  WAL_SYNC: "true"
+  
+  # 快照配置
+  SNAPSHOT_ENABLED: "true"
+  SNAPSHOT_DIR: "/data/snapshot"
+  SNAPSHOT_INTERVAL: "300s"     # 5 分钟
+  SNAPSHOT_THRESHOLD: "10000"   # 10000 条记录后快照
+  
+  # 日志配置
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  LOG_OUTPUT: "stdout"
+  
+  # 监控配置
+  METRICS_ENABLED: "true"
+  METRICS_PORT: "9090"
+  METRICS_PATH: "/metrics"
+  
+  # 安全配置
+  TLS_ENABLED: "false"
+  TLS_CERT_FILE: "/etc/tls/server.crt"
+  TLS_KEY_FILE: "/etc/tls/server.key"
+  TLS_CA_FILE: "/etc/tls/ca.crt"
+  
+  # 性能配置
+  MAX_CONCURRENT_OPS: "1000"
+  BATCH_SIZE: "1000"
+  QUEUE_SIZE: "10000"

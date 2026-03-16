@@ -21,18 +21,12 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// AuthMetadata contains authentication information for each request.
-// This is used to verify the identity and integrity of the request.
+// AuthMetadata contains authentication information for API key-based auth.
 type AuthMetadata struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// api_key is the client's API key for authentication.
-	ApiKey string `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
-	// timestamp is the Unix timestamp (in seconds) when the request was created.
-	// Used to prevent replay attacks (requests older than 5 minutes are rejected).
-	Timestamp int64 `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	// signature is the HMAC-SHA256 signature of the request.
-	// Format: base64_encode(HMAC-SHA256(api_key + timestamp + method_name + item_hash, secret))
-	Signature     string `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ApiKey        string                 `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Signature     string                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -62,7 +56,6 @@ func (x *AuthMetadata) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuthMetadata.ProtoReflect.Descriptor instead.
 func (*AuthMetadata) Descriptor() ([]byte, []int) {
 	return file_api_proto_dbf_proto_rawDescGZIP(), []int{0}
 }
@@ -91,17 +84,15 @@ func (x *AuthMetadata) GetSignature() string {
 // AddRequest is the request message for the Add RPC.
 type AddRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Authentication metadata for this request.
-	Auth *AuthMetadata `protobuf:"bytes,1,opt,name=auth,proto3" json:"auth,omitempty"`
 	// The item to add to the Bloom filter.
-	Item          []byte `protobuf:"bytes,2,opt,name=item,proto3" json:"item,omitempty"`
+	Item          []byte `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AddRequest) Reset() {
 	*x = AddRequest{}
-	mi := &file_api_proto_dbf_proto_msgTypes[1]
+	mi := &file_api_proto_dbf_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -113,7 +104,7 @@ func (x *AddRequest) String() string {
 func (*AddRequest) ProtoMessage() {}
 
 func (x *AddRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[1]
+	mi := &file_api_proto_dbf_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -126,14 +117,7 @@ func (x *AddRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddRequest.ProtoReflect.Descriptor instead.
 func (*AddRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *AddRequest) GetAuth() *AuthMetadata {
-	if x != nil {
-		return x.Auth
-	}
-	return nil
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *AddRequest) GetItem() []byte {
@@ -156,7 +140,7 @@ type AddResponse struct {
 
 func (x *AddResponse) Reset() {
 	*x = AddResponse{}
-	mi := &file_api_proto_dbf_proto_msgTypes[2]
+	mi := &file_api_proto_dbf_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -168,7 +152,7 @@ func (x *AddResponse) String() string {
 func (*AddResponse) ProtoMessage() {}
 
 func (x *AddResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[2]
+	mi := &file_api_proto_dbf_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -181,7 +165,7 @@ func (x *AddResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddResponse.ProtoReflect.Descriptor instead.
 func (*AddResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{2}
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *AddResponse) GetSuccess() bool {
@@ -201,17 +185,15 @@ func (x *AddResponse) GetError() string {
 // RemoveRequest is the request message for the Remove RPC.
 type RemoveRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Authentication metadata for this request.
-	Auth *AuthMetadata `protobuf:"bytes,1,opt,name=auth,proto3" json:"auth,omitempty"`
 	// The item to remove from the Bloom filter.
-	Item          []byte `protobuf:"bytes,2,opt,name=item,proto3" json:"item,omitempty"`
+	Item          []byte `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RemoveRequest) Reset() {
 	*x = RemoveRequest{}
-	mi := &file_api_proto_dbf_proto_msgTypes[3]
+	mi := &file_api_proto_dbf_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -223,7 +205,7 @@ func (x *RemoveRequest) String() string {
 func (*RemoveRequest) ProtoMessage() {}
 
 func (x *RemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[3]
+	mi := &file_api_proto_dbf_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -236,14 +218,7 @@ func (x *RemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveRequest.ProtoReflect.Descriptor instead.
 func (*RemoveRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *RemoveRequest) GetAuth() *AuthMetadata {
-	if x != nil {
-		return x.Auth
-	}
-	return nil
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RemoveRequest) GetItem() []byte {
@@ -266,7 +241,7 @@ type RemoveResponse struct {
 
 func (x *RemoveResponse) Reset() {
 	*x = RemoveResponse{}
-	mi := &file_api_proto_dbf_proto_msgTypes[4]
+	mi := &file_api_proto_dbf_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -278,7 +253,7 @@ func (x *RemoveResponse) String() string {
 func (*RemoveResponse) ProtoMessage() {}
 
 func (x *RemoveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[4]
+	mi := &file_api_proto_dbf_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -291,7 +266,7 @@ func (x *RemoveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveResponse.ProtoReflect.Descriptor instead.
 func (*RemoveResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{4}
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RemoveResponse) GetSuccess() bool {
@@ -311,17 +286,15 @@ func (x *RemoveResponse) GetError() string {
 // ContainsRequest is the request message for the Contains RPC.
 type ContainsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Authentication metadata for this request.
-	Auth *AuthMetadata `protobuf:"bytes,1,opt,name=auth,proto3" json:"auth,omitempty"`
 	// The item to check in the Bloom filter.
-	Item          []byte `protobuf:"bytes,2,opt,name=item,proto3" json:"item,omitempty"`
+	Item          []byte `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ContainsRequest) Reset() {
 	*x = ContainsRequest{}
-	mi := &file_api_proto_dbf_proto_msgTypes[5]
+	mi := &file_api_proto_dbf_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -333,7 +306,7 @@ func (x *ContainsRequest) String() string {
 func (*ContainsRequest) ProtoMessage() {}
 
 func (x *ContainsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[5]
+	mi := &file_api_proto_dbf_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -346,14 +319,7 @@ func (x *ContainsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainsRequest.ProtoReflect.Descriptor instead.
 func (*ContainsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *ContainsRequest) GetAuth() *AuthMetadata {
-	if x != nil {
-		return x.Auth
-	}
-	return nil
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ContainsRequest) GetItem() []byte {
@@ -376,7 +342,7 @@ type ContainsResponse struct {
 
 func (x *ContainsResponse) Reset() {
 	*x = ContainsResponse{}
-	mi := &file_api_proto_dbf_proto_msgTypes[6]
+	mi := &file_api_proto_dbf_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -388,7 +354,7 @@ func (x *ContainsResponse) String() string {
 func (*ContainsResponse) ProtoMessage() {}
 
 func (x *ContainsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[6]
+	mi := &file_api_proto_dbf_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -401,7 +367,7 @@ func (x *ContainsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainsResponse.ProtoReflect.Descriptor instead.
 func (*ContainsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{6}
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ContainsResponse) GetExists() bool {
@@ -421,17 +387,15 @@ func (x *ContainsResponse) GetError() string {
 // BatchAddRequest is the request message for the BatchAdd RPC.
 type BatchAddRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Authentication metadata for this request.
-	Auth *AuthMetadata `protobuf:"bytes,1,opt,name=auth,proto3" json:"auth,omitempty"`
 	// The items to add to the Bloom filter.
-	Items         [][]byte `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	Items         [][]byte `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BatchAddRequest) Reset() {
 	*x = BatchAddRequest{}
-	mi := &file_api_proto_dbf_proto_msgTypes[7]
+	mi := &file_api_proto_dbf_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -443,7 +407,7 @@ func (x *BatchAddRequest) String() string {
 func (*BatchAddRequest) ProtoMessage() {}
 
 func (x *BatchAddRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[7]
+	mi := &file_api_proto_dbf_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -456,14 +420,7 @@ func (x *BatchAddRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchAddRequest.ProtoReflect.Descriptor instead.
 func (*BatchAddRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *BatchAddRequest) GetAuth() *AuthMetadata {
-	if x != nil {
-		return x.Auth
-	}
-	return nil
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *BatchAddRequest) GetItems() [][]byte {
@@ -488,7 +445,7 @@ type BatchAddResponse struct {
 
 func (x *BatchAddResponse) Reset() {
 	*x = BatchAddResponse{}
-	mi := &file_api_proto_dbf_proto_msgTypes[8]
+	mi := &file_api_proto_dbf_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -500,7 +457,7 @@ func (x *BatchAddResponse) String() string {
 func (*BatchAddResponse) ProtoMessage() {}
 
 func (x *BatchAddResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[8]
+	mi := &file_api_proto_dbf_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -513,7 +470,7 @@ func (x *BatchAddResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchAddResponse.ProtoReflect.Descriptor instead.
 func (*BatchAddResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{8}
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BatchAddResponse) GetSuccessCount() int32 {
@@ -540,17 +497,15 @@ func (x *BatchAddResponse) GetErrors() []string {
 // BatchContainsRequest is the request message for the BatchContains RPC.
 type BatchContainsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Authentication metadata for this request.
-	Auth *AuthMetadata `protobuf:"bytes,1,opt,name=auth,proto3" json:"auth,omitempty"`
 	// The items to check in the Bloom filter.
-	Items         [][]byte `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	Items         [][]byte `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BatchContainsRequest) Reset() {
 	*x = BatchContainsRequest{}
-	mi := &file_api_proto_dbf_proto_msgTypes[9]
+	mi := &file_api_proto_dbf_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -562,7 +517,7 @@ func (x *BatchContainsRequest) String() string {
 func (*BatchContainsRequest) ProtoMessage() {}
 
 func (x *BatchContainsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[9]
+	mi := &file_api_proto_dbf_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -575,14 +530,7 @@ func (x *BatchContainsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchContainsRequest.ProtoReflect.Descriptor instead.
 func (*BatchContainsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *BatchContainsRequest) GetAuth() *AuthMetadata {
-	if x != nil {
-		return x.Auth
-	}
-	return nil
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *BatchContainsRequest) GetItems() [][]byte {
@@ -605,7 +553,7 @@ type BatchContainsResponse struct {
 
 func (x *BatchContainsResponse) Reset() {
 	*x = BatchContainsResponse{}
-	mi := &file_api_proto_dbf_proto_msgTypes[10]
+	mi := &file_api_proto_dbf_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +565,7 @@ func (x *BatchContainsResponse) String() string {
 func (*BatchContainsResponse) ProtoMessage() {}
 
 func (x *BatchContainsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[10]
+	mi := &file_api_proto_dbf_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +578,7 @@ func (x *BatchContainsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchContainsResponse.ProtoReflect.Descriptor instead.
 func (*BatchContainsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{10}
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *BatchContainsResponse) GetResults() []bool {
@@ -649,16 +597,14 @@ func (x *BatchContainsResponse) GetError() string {
 
 // GetStatsRequest is the request message for the GetStats RPC.
 type GetStatsRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Authentication metadata for this request.
-	Auth          *AuthMetadata `protobuf:"bytes,1,opt,name=auth,proto3" json:"auth,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetStatsRequest) Reset() {
 	*x = GetStatsRequest{}
-	mi := &file_api_proto_dbf_proto_msgTypes[11]
+	mi := &file_api_proto_dbf_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -670,7 +616,7 @@ func (x *GetStatsRequest) String() string {
 func (*GetStatsRequest) ProtoMessage() {}
 
 func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[11]
+	mi := &file_api_proto_dbf_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -683,14 +629,7 @@ func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetStatsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *GetStatsRequest) GetAuth() *AuthMetadata {
-	if x != nil {
-		return x.Auth
-	}
-	return nil
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{10}
 }
 
 // GetStatsResponse is the response message for the GetStats RPC.
@@ -720,7 +659,7 @@ type GetStatsResponse struct {
 
 func (x *GetStatsResponse) Reset() {
 	*x = GetStatsResponse{}
-	mi := &file_api_proto_dbf_proto_msgTypes[12]
+	mi := &file_api_proto_dbf_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -732,7 +671,7 @@ func (x *GetStatsResponse) String() string {
 func (*GetStatsResponse) ProtoMessage() {}
 
 func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dbf_proto_msgTypes[12]
+	mi := &file_api_proto_dbf_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -745,7 +684,7 @@ func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetStatsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dbf_proto_rawDescGZIP(), []int{12}
+	return file_api_proto_dbf_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetStatsResponse) GetNodeId() string {
@@ -815,45 +754,35 @@ var File_api_proto_dbf_proto protoreflect.FileDescriptor
 
 const file_api_proto_dbf_proto_rawDesc = "" +
 	"\n" +
-	"\x13api/proto/dbf.proto\x12\x03dbf\"c\n" +
-	"\fAuthMetadata\x12\x17\n" +
-	"\aapi_key\x18\x01 \x01(\tR\x06apiKey\x12\x1c\n" +
-	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12\x1c\n" +
-	"\tsignature\x18\x03 \x01(\tR\tsignature\"G\n" +
+	"\x13api/proto/dbf.proto\x12\x03dbf\" \n" +
 	"\n" +
-	"AddRequest\x12%\n" +
-	"\x04auth\x18\x01 \x01(\v2\x11.dbf.AuthMetadataR\x04auth\x12\x12\n" +
-	"\x04item\x18\x02 \x01(\fR\x04item\"=\n" +
+	"AddRequest\x12\x12\n" +
+	"\x04item\x18\x01 \x01(\fR\x04item\"=\n" +
 	"\vAddResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"J\n" +
-	"\rRemoveRequest\x12%\n" +
-	"\x04auth\x18\x01 \x01(\v2\x11.dbf.AuthMetadataR\x04auth\x12\x12\n" +
-	"\x04item\x18\x02 \x01(\fR\x04item\"@\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"#\n" +
+	"\rRemoveRequest\x12\x12\n" +
+	"\x04item\x18\x01 \x01(\fR\x04item\"@\n" +
 	"\x0eRemoveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"L\n" +
-	"\x0fContainsRequest\x12%\n" +
-	"\x04auth\x18\x01 \x01(\v2\x11.dbf.AuthMetadataR\x04auth\x12\x12\n" +
-	"\x04item\x18\x02 \x01(\fR\x04item\"@\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"%\n" +
+	"\x0fContainsRequest\x12\x12\n" +
+	"\x04item\x18\x01 \x01(\fR\x04item\"@\n" +
 	"\x10ContainsResponse\x12\x16\n" +
 	"\x06exists\x18\x01 \x01(\bR\x06exists\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"N\n" +
-	"\x0fBatchAddRequest\x12%\n" +
-	"\x04auth\x18\x01 \x01(\v2\x11.dbf.AuthMetadataR\x04auth\x12\x14\n" +
-	"\x05items\x18\x02 \x03(\fR\x05items\"t\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"'\n" +
+	"\x0fBatchAddRequest\x12\x14\n" +
+	"\x05items\x18\x01 \x03(\fR\x05items\"t\n" +
 	"\x10BatchAddResponse\x12#\n" +
 	"\rsuccess_count\x18\x01 \x01(\x05R\fsuccessCount\x12#\n" +
 	"\rfailure_count\x18\x02 \x01(\x05R\ffailureCount\x12\x16\n" +
-	"\x06errors\x18\x03 \x03(\tR\x06errors\"S\n" +
-	"\x14BatchContainsRequest\x12%\n" +
-	"\x04auth\x18\x01 \x01(\v2\x11.dbf.AuthMetadataR\x04auth\x12\x14\n" +
-	"\x05items\x18\x02 \x03(\fR\x05items\"G\n" +
+	"\x06errors\x18\x03 \x03(\tR\x06errors\",\n" +
+	"\x14BatchContainsRequest\x12\x14\n" +
+	"\x05items\x18\x01 \x03(\fR\x05items\"G\n" +
 	"\x15BatchContainsResponse\x12\x18\n" +
 	"\aresults\x18\x01 \x03(\bR\aresults\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"8\n" +
-	"\x0fGetStatsRequest\x12%\n" +
-	"\x04auth\x18\x01 \x01(\v2\x11.dbf.AuthMetadataR\x04auth\"\x8b\x02\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x11\n" +
+	"\x0fGetStatsRequest\"\x8b\x02\n" +
 	"\x10GetStatsResponse\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1b\n" +
 	"\tis_leader\x18\x02 \x01(\bR\bisLeader\x12\x1d\n" +
@@ -888,46 +817,39 @@ func file_api_proto_dbf_proto_rawDescGZIP() []byte {
 	return file_api_proto_dbf_proto_rawDescData
 }
 
-var file_api_proto_dbf_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_api_proto_dbf_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_api_proto_dbf_proto_goTypes = []any{
-	(*AuthMetadata)(nil),          // 0: dbf.AuthMetadata
-	(*AddRequest)(nil),            // 1: dbf.AddRequest
-	(*AddResponse)(nil),           // 2: dbf.AddResponse
-	(*RemoveRequest)(nil),         // 3: dbf.RemoveRequest
-	(*RemoveResponse)(nil),        // 4: dbf.RemoveResponse
-	(*ContainsRequest)(nil),       // 5: dbf.ContainsRequest
-	(*ContainsResponse)(nil),      // 6: dbf.ContainsResponse
-	(*BatchAddRequest)(nil),       // 7: dbf.BatchAddRequest
-	(*BatchAddResponse)(nil),      // 8: dbf.BatchAddResponse
-	(*BatchContainsRequest)(nil),  // 9: dbf.BatchContainsRequest
-	(*BatchContainsResponse)(nil), // 10: dbf.BatchContainsResponse
-	(*GetStatsRequest)(nil),       // 11: dbf.GetStatsRequest
-	(*GetStatsResponse)(nil),      // 12: dbf.GetStatsResponse
+	(*AddRequest)(nil),            // 0: dbf.AddRequest
+	(*AddResponse)(nil),           // 1: dbf.AddResponse
+	(*RemoveRequest)(nil),         // 2: dbf.RemoveRequest
+	(*RemoveResponse)(nil),        // 3: dbf.RemoveResponse
+	(*ContainsRequest)(nil),       // 4: dbf.ContainsRequest
+	(*ContainsResponse)(nil),      // 5: dbf.ContainsResponse
+	(*BatchAddRequest)(nil),       // 6: dbf.BatchAddRequest
+	(*BatchAddResponse)(nil),      // 7: dbf.BatchAddResponse
+	(*BatchContainsRequest)(nil),  // 8: dbf.BatchContainsRequest
+	(*BatchContainsResponse)(nil), // 9: dbf.BatchContainsResponse
+	(*GetStatsRequest)(nil),       // 10: dbf.GetStatsRequest
+	(*GetStatsResponse)(nil),      // 11: dbf.GetStatsResponse
 }
 var file_api_proto_dbf_proto_depIdxs = []int32{
-	0,  // 0: dbf.AddRequest.auth:type_name -> dbf.AuthMetadata
-	0,  // 1: dbf.RemoveRequest.auth:type_name -> dbf.AuthMetadata
-	0,  // 2: dbf.ContainsRequest.auth:type_name -> dbf.AuthMetadata
-	0,  // 3: dbf.BatchAddRequest.auth:type_name -> dbf.AuthMetadata
-	0,  // 4: dbf.BatchContainsRequest.auth:type_name -> dbf.AuthMetadata
-	0,  // 5: dbf.GetStatsRequest.auth:type_name -> dbf.AuthMetadata
-	1,  // 6: dbf.DBFService.Add:input_type -> dbf.AddRequest
-	3,  // 7: dbf.DBFService.Remove:input_type -> dbf.RemoveRequest
-	5,  // 8: dbf.DBFService.Contains:input_type -> dbf.ContainsRequest
-	7,  // 9: dbf.DBFService.BatchAdd:input_type -> dbf.BatchAddRequest
-	9,  // 10: dbf.DBFService.BatchContains:input_type -> dbf.BatchContainsRequest
-	11, // 11: dbf.DBFService.GetStats:input_type -> dbf.GetStatsRequest
-	2,  // 12: dbf.DBFService.Add:output_type -> dbf.AddResponse
-	4,  // 13: dbf.DBFService.Remove:output_type -> dbf.RemoveResponse
-	6,  // 14: dbf.DBFService.Contains:output_type -> dbf.ContainsResponse
-	8,  // 15: dbf.DBFService.BatchAdd:output_type -> dbf.BatchAddResponse
-	10, // 16: dbf.DBFService.BatchContains:output_type -> dbf.BatchContainsResponse
-	12, // 17: dbf.DBFService.GetStats:output_type -> dbf.GetStatsResponse
-	12, // [12:18] is the sub-list for method output_type
-	6,  // [6:12] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	0,  // 0: dbf.DBFService.Add:input_type -> dbf.AddRequest
+	2,  // 1: dbf.DBFService.Remove:input_type -> dbf.RemoveRequest
+	4,  // 2: dbf.DBFService.Contains:input_type -> dbf.ContainsRequest
+	6,  // 3: dbf.DBFService.BatchAdd:input_type -> dbf.BatchAddRequest
+	8,  // 4: dbf.DBFService.BatchContains:input_type -> dbf.BatchContainsRequest
+	10, // 5: dbf.DBFService.GetStats:input_type -> dbf.GetStatsRequest
+	1,  // 6: dbf.DBFService.Add:output_type -> dbf.AddResponse
+	3,  // 7: dbf.DBFService.Remove:output_type -> dbf.RemoveResponse
+	5,  // 8: dbf.DBFService.Contains:output_type -> dbf.ContainsResponse
+	7,  // 9: dbf.DBFService.BatchAdd:output_type -> dbf.BatchAddResponse
+	9,  // 10: dbf.DBFService.BatchContains:output_type -> dbf.BatchContainsResponse
+	11, // 11: dbf.DBFService.GetStats:output_type -> dbf.GetStatsResponse
+	6,  // [6:12] is the sub-list for method output_type
+	0,  // [0:6] is the sub-list for method input_type
+	0,  // [0:0] is the sub-list for extension type_name
+	0,  // [0:0] is the sub-list for extension extendee
+	0,  // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_dbf_proto_init() }
@@ -941,7 +863,7 @@ func file_api_proto_dbf_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_dbf_proto_rawDesc), len(file_api_proto_dbf_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
