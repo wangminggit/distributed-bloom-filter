@@ -1,0 +1,179 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dbf-alerts
+  namespace: dbf
+  labels:
+    app: distributed-bloom-filter
+    release: prometheus
+spec:
+  groups:
+    # P0 - Critical Alerts
+    - name: dbf-critical
+      interval: 30s
+      rules:
+        - alert: DBFServiceDown
+          expr: up{job="dbf"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            page: "true"
+          annotations:
+            summary: "🔴 DBF 服务不可用"
+            description: "实例 {{ $labels.instance }} 已宕机超过 1 分钟"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#事件响应"
+            
+        - alert: DBFNoLeader
+          expr: sum(dbf_raft_is_leader) == 0
+          for: 2m
+          labels:
+            severity: critical
+            page: "true"
+          annotations:
+            summary: "🔴 Raft 集群无 Leader"
+            description: "集群中没有 Leader 节点，无法处理写入请求"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#故障切换"
+            
+        - alert: DBFDataInconsistency
+          expr: dbf_raft_consistent_nodes < dbf_raft_total_nodes
+          for: 5m
+          labels:
+            severity: critical
+            page: "true"
+          annotations:
+            summary: "🔴 数据不一致"
+            description: "集群中有 {{ $value }} 个节点数据不一致"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#标准操作程序"
+
+    # P1 - High Priority Alerts
+    - name: dbf-high
+      interval: 30s
+      rules:
+        - alert: DBFHighLatencyP99
+          expr: histogram_quantile(0.99, rate(grpc_server_handling_seconds_bucket[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: high
+            page: "false"
+          annotations:
+            summary: "🟠 P99 延迟过高"
+            description: "P99 延迟 {{ $value | humanizeDuration }} 超过阈值 50ms"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#性能告警"
+            
+        - alert: DBFHighErrorRate
+          expr: sum(rate(grpc_server_handled_total{grpc_code!="OK"}[5m])) / sum(rate(grpc_server_handled_total[5m])) > 0.001
+          for: 5m
+          labels:
+            severity: high
+            page: "false"
+          annotations:
+            summary: "🟠 错误率过高"
+            description: "错误率 {{ $value | humanizePercentage }} 超过阈值 0.1%"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#标准操作程序"
+            
+        - alert: DBFWriteFailures
+          expr: sum(rate(dbf_writes_total{status="error"}[5m])) > 10
+          for: 5m
+          labels:
+            severity: high
+            page: "false"
+          annotations:
+            summary: "🟠 写入失败过多"
+            description: "每秒 {{ $value }} 次写入失败"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#标准操作程序"
+            
+        - alert: DBFSLOErrorBudgetBurn
+          expr: (1 - avg_over_time(up{job="dbf"}[1h])) > 0.001
+          for: 1h
+          labels:
+            severity: high
+            page: "false"
+          annotations:
+            summary: "🟠 SLO 错误预算消耗过快"
+            description: "过去 1 小时错误率超过 SLO 预算"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#错误预算"
+
+    # P2 - Medium Priority Alerts
+    - name: dbf-medium
+      interval: 1m
+      rules:
+        - alert: DBFHighMemory
+          expr: container_memory_usage_bytes{container="dbf"} / container_spec_memory_limit_bytes{container="dbf"} > 0.85
+          for: 10m
+          labels:
+            severity: medium
+            page: "false"
+          annotations:
+            summary: "🟡 内存使用率过高"
+            description: "内存使用率 {{ $value | humanizePercentage }} 超过阈值 85%"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#资源告警"
+            
+        - alert: DBFHighCPU
+          expr: rate(container_cpu_usage_seconds_total{container="dbf"}[5m]) / container_spec_cpu_quota{container="dbf"} * 100000 > 0.8
+          for: 10m
+          labels:
+            severity: medium
+            page: "false"
+          annotations:
+            summary: "🟡 CPU 使用率过高"
+            description: "CPU 使用率 {{ $value | humanizePercentage }} 超过阈值 80%"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#容量规划"
+            
+        - alert: DBFDiskSpaceLow
+          expr: kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.2
+          for: 15m
+          labels:
+            severity: medium
+            page: "false"
+          annotations:
+            summary: "🟡 磁盘空间不足"
+            description: "磁盘剩余空间 {{ $value | humanizePercentage }}"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#资源告警"
+            
+        - alert: DBFReplicasMismatch
+          expr: kube_statefulset_status_replicas_ready{statefulset="dbf-storage"} != kube_statefulset_spec_replicas{statefulset="dbf-storage"}
+          for: 10m
+          labels:
+            severity: medium
+            page: "false"
+          annotations:
+            summary: "🟡 副本数不匹配"
+            description: "期望 {{ $value }} 个副本，实际就绪数量不符"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#标准操作程序"
+
+    # P3 - Low Priority Alerts
+    - name: dbf-low
+      interval: 5m
+      rules:
+        - alert: DBFSnapshotOld
+          expr: time() - dbf_last_snapshot_timestamp > 3600
+          for: 30m
+          labels:
+            severity: low
+            page: "false"
+          annotations:
+            summary: "🔵 快照过期"
+            description: "上次快照时间超过 1 小时"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#备份策略"
+            
+        - alert: DBFNodeNotReady
+          expr: kube_pod_status_ready{pod=~"dbf-storage-.*", condition="true"} == 0
+          for: 5m
+          labels:
+            severity: low
+            page: "false"
+          annotations:
+            summary: "🔵 节点未就绪"
+            description: "Pod {{ $labels.pod }} 未就绪"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#日常检查"
+            
+        - alert: DBFHighRestartRate
+          expr: increase(kube_pod_container_status_restarts_total{pod=~"dbf-storage-.*"}[1h]) > 3
+          for: 1h
+          labels:
+            severity: low
+            page: "false"
+          annotations:
+            summary: "🔵 节点频繁重启"
+            description: "Pod {{ $labels.pod }} 在过去 1 小时重启 {{ $value }} 次"
+            runbook_url: "https://github.com/wangminggit/distributed-bloom-filter/blob/main/sre/SRE-RUNBOOK.md#故障排查"

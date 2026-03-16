@@ -1,0 +1,319 @@
+# DBF 运营仪表板
+# 导入到 Grafana 使用
+
+{
+  "dashboard": {
+    "id": null,
+    "uid": "dbf-overview",
+    "title": "DBF - 运营概览",
+    "tags": ["distributed-bloom-filter", "database"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "服务状态",
+        "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "up{job=\"dbf\"}",
+            "legendFormat": "{{instance}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}}},
+              {"type": "value", "options": {"1": {"text": "UP", "color": "green"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "当前 Leader",
+        "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "label_replace(dbf_raft_is_leader == 1, \"leader\", \"$1\", \"instance\", \"(.*)\")",
+            "legendFormat": "{{leader}}"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "集群节点数",
+        "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "count(dbf_raft_is_leader)",
+            "legendFormat": "Nodes"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "type": "stat",
+        "title": "可用性 (30d)",
+        "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "avg_over_time(up{job=\"dbf\"}[30d]) * 100",
+            "legendFormat": "Availability %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 99, "color": "yellow"},
+                {"value": 99.9, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "type": "stat",
+        "title": "错误预算剩余",
+        "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "(0.999 - (1 - avg_over_time(up{job=\"dbf\"}[30d]))) / 0.001 * 100",
+            "legendFormat": "Budget %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 20, "color": "yellow"},
+                {"value": 50, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "type": "stat",
+        "title": "总元素数",
+        "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "sum(dbf_element_count)",
+            "legendFormat": "Elements"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "type": "timeseries",
+        "title": "QPS (5 分钟)",
+        "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(grpc_server_handled_total[5m]))",
+            "legendFormat": "Total QPS"
+          },
+          {
+            "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"Add\"}[5m]))",
+            "legendFormat": "Add QPS"
+          },
+          {
+            "expr": "sum(rate(grpc_server_handled_total{grpc_method=\"Contains\"}[5m]))",
+            "legendFormat": "Contains QPS"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "type": "timeseries",
+        "title": "延迟分布",
+        "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(grpc_server_handling_seconds_bucket[5m]))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(grpc_server_handling_seconds_bucket[5m]))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(grpc_server_handling_seconds_bucket[5m]))",
+            "legendFormat": "P99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "alert": {
+          "name": "High P99 Latency",
+          "conditions": [
+            {
+              "evaluator": {"params": [0.05], "type": "gt"},
+              "query": {"params": ["P99", "5m", "now"]},
+              "operator": {"type": "and"}
+            }
+          ]
+        }
+      },
+      {
+        "id": 9,
+        "type": "timeseries",
+        "title": "错误率",
+        "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(grpc_server_handled_total{grpc_code!=\"OK\"}[5m])) / sum(rate(grpc_server_handled_total[5m])) * 100",
+            "legendFormat": "Error Rate %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 0.1, "color": "yellow"},
+                {"value": 1, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "type": "timeseries",
+        "title": "Raft 状态",
+        "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "dbf_raft_is_leader",
+            "legendFormat": "{{instance}} - Leader"
+          },
+          {
+            "expr": "dbf_raft_term",
+            "legendFormat": "{{instance}} - Term"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "type": "timeseries",
+        "title": "内存使用",
+        "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "container_memory_usage_bytes{container=\"dbf\"} / 1024 / 1024",
+            "legendFormat": "{{instance}} - Memory MB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "type": "timeseries",
+        "title": "CPU 使用",
+        "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{container=\"dbf\"}[5m]) * 100",
+            "legendFormat": "{{instance}} - CPU %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 13,
+        "type": "timeseries",
+        "title": "磁盘使用",
+        "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes * 100",
+            "legendFormat": "{{persistentvolumeclaim}} - Disk %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 14,
+        "type": "timeseries",
+        "title": "WAL 大小",
+        "gridPos": {"x": 12, "y": 28, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "dbf_wal_size_bytes",
+            "legendFormat": "{{instance}} - WAL Bytes"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        }
+      },
+      {
+        "id": 15,
+        "type": "table",
+        "title": "节点状态",
+        "gridPos": {"x": 0, "y": 36, "w": 24, "h": 6},
+        "targets": [
+          {
+            "expr": "dbf_raft_is_leader",
+            "format": "table",
+            "instant": true,
+            "legendFormat": ""
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "renameByName": {
+                "instance": "节点",
+                "Value": "Leader"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
