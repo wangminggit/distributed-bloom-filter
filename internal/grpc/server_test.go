@@ -18,6 +18,9 @@ func setupTestServer(t *testing.T) (*DBFServer, func()) {
 	// Create test data directory
 	dataDir := t.TempDir()
 
+	// Use a unique Raft port for each test to avoid conflicts
+	raftPort := 18081 + int(time.Now().UnixNano()%1000)
+
 	// Initialize components
 	walEncryptor, err := wal.NewWALEncryptor("")
 	if err != nil {
@@ -26,7 +29,7 @@ func setupTestServer(t *testing.T) (*DBFServer, func()) {
 
 	metadataService := metadata.NewService(dataDir)
 	bloomFilter := bloom.NewCountingBloomFilter(10000, 3)
-	raftNode := raft.NewNode("test-node", 18081, dataDir, bloomFilter, walEncryptor, metadataService)
+	raftNode := raft.NewNode("test-node", raftPort, dataDir, bloomFilter, walEncryptor, metadataService)
 
 	// Start Raft node with bootstrap
 	if err := raftNode.Start(true); err != nil {
@@ -352,8 +355,9 @@ func TestServerGetStats(t *testing.T) {
 		if resp.BloomK != 3 {
 			t.Errorf("Expected bloom_k 3, got %d", resp.BloomK)
 		}
-		if resp.RaftPort != 18081 {
-			t.Errorf("Expected raft_port 18081, got %d", resp.RaftPort)
+		// RaftPort should be > 0 (we use random ports to avoid conflicts)
+		if resp.RaftPort <= 0 {
+			t.Errorf("Expected raft_port > 0, got %d", resp.RaftPort)
 		}
 	})
 }

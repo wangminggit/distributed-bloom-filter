@@ -1,0 +1,150 @@
+	github.com/wangminggit/distributed-bloom-filter/api/proto		coverage: 0.0% of statements
+	github.com/wangminggit/distributed-bloom-filter/benchmark		coverage: 0.0% of statements
+ok  	github.com/wangminggit/distributed-bloom-filter/cmd/client	0.004s	coverage: 14.3% of statements
+	github.com/wangminggit/distributed-bloom-filter/cmd/server		coverage: 0.0% of statements
+2026/03/16 10:15:09 Rollback failed: tx closed
+2026/03/16 10:15:09 Rollback failed: tx closed
+2026-03-16T10:15:09.854+0800 [INFO]  raft: initial configuration: index=0 servers=[]
+2026-03-16T10:15:09.854+0800 [INFO]  raft: entering follower state: follower="Node at 127.0.0.1:18864 [Follower]" leader-address= leader-id=
+2026/03/16 10:15:09 Rollback failed: tx closed
+2026/03/16 10:15:09 Rollback failed: tx closed
+2026/03/16 10:15:09 Rollback failed: tx closed
+2026/03/16 10:15:09 Bootstrapped Raft cluster with node test-node
+2026/03/16 10:15:09 Raft node test-node started on port 18864
+2026-03-16T10:15:11.668+0800 [WARN]  raft: heartbeat timeout reached, starting election: last-leader-addr= last-leader-id=
+2026-03-16T10:15:11.668+0800 [INFO]  raft: entering candidate state: node="Node at 127.0.0.1:18864 [Candidate]" term=2
+2026-03-16T10:15:11.668+0800 [DEBUG] raft: pre-voting for self: term=2 id=test-node
+2026-03-16T10:15:11.668+0800 [DEBUG] raft: calculated votes needed: needed=1 term=2
+2026-03-16T10:15:11.668+0800 [DEBUG] raft: pre-vote received: from=test-node term=2 tally=0
+2026-03-16T10:15:11.668+0800 [DEBUG] raft: pre-vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:11.668+0800 [INFO]  raft: pre-vote successful, starting election: term=2 tally=1 refused=0 votesNeeded=1
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026-03-16T10:15:11.686+0800 [DEBUG] raft: voting for self: term=2 id=test-node
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026-03-16T10:15:11.699+0800 [DEBUG] raft: vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:11.699+0800 [INFO]  raft: election won: term=2 tally=1
+2026-03-16T10:15:11.699+0800 [INFO]  raft: entering leader state: leader="Node at 127.0.0.1:18864 [Leader]"
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026/03/16 10:15:11 Raft node test-node shut down
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026-03-16T10:15:11.909+0800 [INFO]  raft: initial configuration: index=0 servers=[]
+2026-03-16T10:15:11.909+0800 [INFO]  raft: entering follower state: follower="Node at 127.0.0.1:18435 [Follower]" leader-address= leader-id=
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026/03/16 10:15:11 Rollback failed: tx closed
+2026/03/16 10:15:11 Bootstrapped Raft cluster with node test-node
+2026/03/16 10:15:11 Raft node test-node started on port 18435
+2026-03-16T10:15:13.894+0800 [WARN]  raft: heartbeat timeout reached, starting election: last-leader-addr= last-leader-id=
+2026-03-16T10:15:13.894+0800 [INFO]  raft: entering candidate state: node="Node at 127.0.0.1:18435 [Candidate]" term=2
+2026-03-16T10:15:13.894+0800 [DEBUG] raft: pre-voting for self: term=2 id=test-node
+2026-03-16T10:15:13.894+0800 [DEBUG] raft: calculated votes needed: needed=1 term=2
+2026-03-16T10:15:13.894+0800 [DEBUG] raft: pre-vote received: from=test-node term=2 tally=0
+2026-03-16T10:15:13.894+0800 [DEBUG] raft: pre-vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:13.894+0800 [INFO]  raft: pre-vote successful, starting election: term=2 tally=1 refused=0 votesNeeded=1
+2026/03/16 10:15:13 Rollback failed: tx closed
+2026-03-16T10:15:13.913+0800 [DEBUG] raft: voting for self: term=2 id=test-node
+2026/03/16 10:15:13 Rollback failed: tx closed
+2026/03/16 10:15:13 Rollback failed: tx closed
+2026-03-16T10:15:13.931+0800 [DEBUG] raft: vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:13.931+0800 [INFO]  raft: election won: term=2 tally=1
+2026-03-16T10:15:13.931+0800 [INFO]  raft: entering leader state: leader="Node at 127.0.0.1:18435 [Leader]"
+2026/03/16 10:15:13 Rollback failed: tx closed
+2026/03/16 10:15:14 Rollback failed: tx closed
+2026/03/16 10:15:14 Raft node test-node shut down
+2026/03/16 10:15:14 Rollback failed: tx closed
+2026/03/16 10:15:14 Rollback failed: tx closed
+2026-03-16T10:15:14.175+0800 [INFO]  raft: initial configuration: index=0 servers=[]
+2026-03-16T10:15:14.175+0800 [INFO]  raft: entering follower state: follower="Node at 127.0.0.1:18286 [Follower]" leader-address= leader-id=
+2026/03/16 10:15:14 Rollback failed: tx closed
+2026/03/16 10:15:14 Rollback failed: tx closed
+2026/03/16 10:15:14 Rollback failed: tx closed
+2026/03/16 10:15:14 Bootstrapped Raft cluster with node test-node
+2026/03/16 10:15:14 Raft node test-node started on port 18286
+2026-03-16T10:15:15.427+0800 [WARN]  raft: heartbeat timeout reached, starting election: last-leader-addr= last-leader-id=
+2026-03-16T10:15:15.427+0800 [INFO]  raft: entering candidate state: node="Node at 127.0.0.1:18286 [Candidate]" term=2
+2026-03-16T10:15:15.427+0800 [DEBUG] raft: pre-voting for self: term=2 id=test-node
+2026-03-16T10:15:15.427+0800 [DEBUG] raft: calculated votes needed: needed=1 term=2
+2026-03-16T10:15:15.427+0800 [DEBUG] raft: pre-vote received: from=test-node term=2 tally=0
+2026-03-16T10:15:15.427+0800 [DEBUG] raft: pre-vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:15.427+0800 [INFO]  raft: pre-vote successful, starting election: term=2 tally=1 refused=0 votesNeeded=1
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026-03-16T10:15:15.442+0800 [DEBUG] raft: voting for self: term=2 id=test-node
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026-03-16T10:15:15.455+0800 [DEBUG] raft: vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:15.455+0800 [INFO]  raft: election won: term=2 tally=1
+2026-03-16T10:15:15.455+0800 [INFO]  raft: entering leader state: leader="Node at 127.0.0.1:18286 [Leader]"
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Raft node test-node shut down
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026-03-16T10:15:15.676+0800 [INFO]  raft: initial configuration: index=0 servers=[]
+2026-03-16T10:15:15.676+0800 [INFO]  raft: entering follower state: follower="Node at 127.0.0.1:18897 [Follower]" leader-address= leader-id=
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Rollback failed: tx closed
+2026/03/16 10:15:15 Bootstrapped Raft cluster with node test-node
+2026/03/16 10:15:15 Raft node test-node started on port 18897
+2026-03-16T10:15:17.243+0800 [WARN]  raft: heartbeat timeout reached, starting election: last-leader-addr= last-leader-id=
+2026-03-16T10:15:17.243+0800 [INFO]  raft: entering candidate state: node="Node at 127.0.0.1:18897 [Candidate]" term=2
+2026-03-16T10:15:17.243+0800 [DEBUG] raft: pre-voting for self: term=2 id=test-node
+2026-03-16T10:15:17.243+0800 [DEBUG] raft: calculated votes needed: needed=1 term=2
+2026-03-16T10:15:17.243+0800 [DEBUG] raft: pre-vote received: from=test-node term=2 tally=0
+2026-03-16T10:15:17.243+0800 [DEBUG] raft: pre-vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:17.243+0800 [INFO]  raft: pre-vote successful, starting election: term=2 tally=1 refused=0 votesNeeded=1
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026-03-16T10:15:17.259+0800 [DEBUG] raft: voting for self: term=2 id=test-node
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026-03-16T10:15:17.273+0800 [DEBUG] raft: vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:17.273+0800 [INFO]  raft: election won: term=2 tally=1
+2026-03-16T10:15:17.273+0800 [INFO]  raft: entering leader state: leader="Node at 127.0.0.1:18897 [Leader]"
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Raft node test-node shut down
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026-03-16T10:15:17.499+0800 [INFO]  raft: initial configuration: index=0 servers=[]
+2026-03-16T10:15:17.499+0800 [INFO]  raft: entering follower state: follower="Node at 127.0.0.1:18408 [Follower]" leader-address= leader-id=
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Rollback failed: tx closed
+2026/03/16 10:15:17 Bootstrapped Raft cluster with node test-node
+2026/03/16 10:15:17 Raft node test-node started on port 18408
+2026-03-16T10:15:19.308+0800 [WARN]  raft: heartbeat timeout reached, starting election: last-leader-addr= last-leader-id=
+2026-03-16T10:15:19.308+0800 [INFO]  raft: entering candidate state: node="Node at 127.0.0.1:18408 [Candidate]" term=2
+2026-03-16T10:15:19.308+0800 [DEBUG] raft: pre-voting for self: term=2 id=test-node
+2026-03-16T10:15:19.308+0800 [DEBUG] raft: calculated votes needed: needed=1 term=2
+2026-03-16T10:15:19.308+0800 [DEBUG] raft: pre-vote received: from=test-node term=2 tally=0
+2026-03-16T10:15:19.308+0800 [DEBUG] raft: pre-vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:19.308+0800 [INFO]  raft: pre-vote successful, starting election: term=2 tally=1 refused=0 votesNeeded=1
+2026/03/16 10:15:19 Rollback failed: tx closed
+2026-03-16T10:15:19.324+0800 [DEBUG] raft: voting for self: term=2 id=test-node
+2026/03/16 10:15:19 Rollback failed: tx closed
+2026/03/16 10:15:19 Rollback failed: tx closed
+2026-03-16T10:15:19.338+0800 [DEBUG] raft: vote granted: from=test-node term=2 tally=1
+2026-03-16T10:15:19.338+0800 [INFO]  raft: election won: term=2 tally=1
+2026-03-16T10:15:19.338+0800 [INFO]  raft: entering leader state: leader="Node at 127.0.0.1:18408 [Leader]"
+2026/03/16 10:15:19 Rollback failed: tx closed
+2026/03/16 10:15:19 Raft node test-node shut down
+--- FAIL: TestServerGetStats (1.93s)
+    --- FAIL: TestServerGetStats/GetStats (0.00s)
+        server_test.go:359: Expected raft_port 18081, got 18408
+FAIL
+coverage: 60.5% of statements
+FAIL	github.com/wangminggit/distributed-bloom-filter/internal/grpc	10.619s
+ok  	github.com/wangminggit/distributed-bloom-filter/internal/metadata	(cached)	coverage: 98.0% of statements
+ok  	github.com/wangminggit/distributed-bloom-filter/internal/raft	(cached)	coverage: 52.5% of statements
+ok  	github.com/wangminggit/distributed-bloom-filter/internal/wal	(cached)	coverage: 59.9% of statements
+ok  	github.com/wangminggit/distributed-bloom-filter/pkg/bloom	0.003s	coverage: 97.3% of statements
+ok  	github.com/wangminggit/distributed-bloom-filter/pkg/tls	(cached)	coverage: 68.2% of statements
+FAIL
