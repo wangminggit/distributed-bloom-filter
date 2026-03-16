@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dbf
+  namespace: dbf
+  labels:
+    app: distributed-bloom-filter
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: distributed-bloom-filter
+  namespaceSelector:
+    matchNames:
+      - dbf
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      honorLabels: true
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: "go_.*"
+          action: drop
+        - sourceLabels: [__name__]
+          regex: "process_.*"
+          action: drop

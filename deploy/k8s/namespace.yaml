@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dbf
+  labels:
+    app: distributed-bloom-filter
+    app.kubernetes.io/name: distributed-bloom-filter
+    app.kubernetes.io/component: database

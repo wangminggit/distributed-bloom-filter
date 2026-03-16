@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dbf-storage
+  namespace: dbf
+  labels:
+    app: distributed-bloom-filter
+    component: storage
+spec:
+  serviceName: dbf-storage-headless
+  replicas: 6
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: distributed-bloom-filter
+      component: storage
+  template:
+    metadata:
+      labels:
+        app: distributed-bloom-filter
+        component: storage
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: distributed-bloom-filter
+                    component: storage
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: dbf
+          image: yourorg/dbf:v0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --node-id=$(POD_NAME)
+            - --port=$(GRPC_PORT)
+            - --raft-port=$(RAFT_PORT)
+            - --data-dir=/data
+            - --m=$(BLOOM_M)
+            - --k=$(BLOOM_K)
+            - --bootstrap=$(BOOTSTRAP)
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: raft
+              containerPort: 8081
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: BOOTSTRAP
+              value: "false"
+          envFrom:
+            - configMapRef:
+                name: dbf-config
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              subPath: data
+            - name: wal
+              mountPath: /data/wal
+            - name: snapshot
+              mountPath: /data/snapshot
+          livenessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dbf-data
+        - name: wal
+          emptyDir: {}
+        - name: snapshot
+          emptyDir: {}
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
