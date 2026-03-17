@@ -21,6 +21,20 @@ import (
 	dbftls "github.com/wangminggit/distributed-bloom-filter/pkg/tls"
 )
 
+// RaftNode defines the interface for Raft node operations.
+type RaftNode interface {
+	Start(bootstrap bool) error
+	Shutdown() error
+	Add(item []byte) error
+	Remove(item []byte) error
+	Contains(item []byte) bool
+	BatchAdd(items [][]byte) (successCount, failureCount int, errors []string)
+	BatchContains(items [][]byte) []bool
+	IsLeader() bool
+	Leader() string
+	GetState() map[string]interface{}
+}
+
 // Node represents a Raft consensus node for the distributed Bloom filter.
 // It implements the raft.FSM interface for state machine replication.
 type Node struct {
@@ -47,12 +61,6 @@ type RaftTLSConfig struct {
 	CAPath         string
 	MinVersion     uint16
 	ReloadInterval time.Duration
-}
-
-// Command represents a Raft command.
-type Command struct {
-	Command string `json:"command"`
-	Item    []byte `json:"item"`
 }
 
 // NewNode creates a new Raft node.
@@ -215,8 +223,8 @@ func (n *Node) Add(item []byte) error {
 
 	// Create command
 	cmd := Command{
-		Command: "add",
-		Item:    item,
+		Type: "add",
+		Item: item,
 	}
 
 	// Encode command
@@ -241,8 +249,8 @@ func (n *Node) Remove(item []byte) error {
 	}
 
 	cmd := Command{
-		Command: "remove",
-		Item:    item,
+		Type: "remove",
+		Item: item,
 	}
 
 	data, err := json.Marshal(cmd)
@@ -318,7 +326,7 @@ func (n *Node) Apply(log *raft.Log) interface{} {
 	defer n.mu.Unlock()
 
 	// Execute the command on the Bloom filter
-	switch cmd.Command {
+	switch cmd.Type {
 	case "add":
 		n.bloomFilter.Add(cmd.Item)
 		return nil
@@ -326,7 +334,7 @@ func (n *Node) Apply(log *raft.Log) interface{} {
 		n.bloomFilter.Remove(cmd.Item)
 		return nil
 	default:
-		return fmt.Errorf("unknown command: %s", cmd.Command)
+		return fmt.Errorf("unknown command: %s", cmd.Type)
 	}
 }
 
@@ -367,26 +375,6 @@ func (n *Node) Restore(rc io.ReadCloser) error {
 	n.bloomFilter = newFilter
 	log.Printf("Restored FSM state from snapshot (%d bytes)", len(data))
 	return nil
-}
-
-// fsmSnapshot implements raft.FSMSnapshot for the Bloom filter state.
-type fsmSnapshot struct {
-	bloomData []byte
-}
-
-// Persist writes the snapshot data to the given sink.
-func (s *fsmSnapshot) Persist(sink raft.SnapshotSink) error {
-	_, err := sink.Write(s.bloomData)
-	if err != nil {
-		sink.Cancel()
-		return err
-	}
-	return sink.Close()
-}
-
-// Release is called when the snapshot is no longer needed.
-func (s *fsmSnapshot) Release() {
-	// No cleanup needed
 }
 
 // GetState returns the current state of the node.

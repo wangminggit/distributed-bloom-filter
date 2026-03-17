@@ -1,13 +1,15 @@
 module github.com/wangminggit/distributed-bloom-filter
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb v0.0.0-20251103221153-05f9dd7a5148
 	github.com/stretchr/testify v1.11.1
 	github.com/twmb/murmur3 v1.1.8
+	golang.org/x/time v0.15.0
 	google.golang.org/grpc v1.79.2
 	google.golang.org/protobuf v1.36.11
 )
