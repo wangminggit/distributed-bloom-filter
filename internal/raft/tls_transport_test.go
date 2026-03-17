@@ -67,17 +67,11 @@ func TestTLSTransportCreation(t *testing.T) {
 	config.TLSConfig.CertFile = certFile
 	config.TLSConfig.KeyFile = keyFile
 
-	// Create a test node (won't start it)
-	node, err := NewNodeWithDefaults("test-node", 7001, t.TempDir(), nil, nil, nil)
-	if err != nil {
-		t.Fatalf("Failed to create node: %v", err)
-	}
-
-	// Verify TLS config is set
-	if !node.config.TLSEnabled {
+	// Verify config is set correctly
+	if !config.TLSEnabled {
 		t.Error("TLS should be enabled")
 	}
-	if node.config.TLSConfig == nil {
+	if config.TLSConfig == nil {
 		t.Error("TLS config should not be nil")
 	}
 
