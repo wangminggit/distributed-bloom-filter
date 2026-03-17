@@ -3,12 +3,21 @@ package bloom
 import (
 	"errors"
 	"hash"
+	"sync"
 
 	"github.com/twmb/murmur3"
 )
 
 // ErrInvalidData is returned when deserializing invalid Bloom filter data.
 var ErrInvalidData = errors.New("invalid bloom filter data")
+
+// indexPool is a sync.Pool for reusing index slices to reduce GC pressure.
+var indexPool = sync.Pool{
+	New: func() interface{} {
+		slice := make([]int, 0, MaxHashFunctions)
+		return &slice
+	},
+}
 
 // getHashIndices computes k hash indices for an item using double hashing technique.
 // Double hashing uses two hash functions h1 and h2, and computes:
@@ -28,6 +37,34 @@ func getHashIndices(item []byte, m, k int) []int {
 	}
 
 	return indices
+}
+
+// getHashIndicesPooled computes k hash indices using a pooled slice.
+// This reduces memory allocations for high-throughput scenarios.
+// IMPORTANT: Caller must return the slice to the pool when done.
+func getHashIndicesPooled(item []byte, m, k int) *[]int {
+	indices := indexPool.Get().(*[]int)
+	
+	if cap(*indices) < k {
+		*indices = make([]int, k)
+	} else {
+		*indices = (*indices)[:k]
+	}
+
+	h1 := uint64(murmur3.Sum32(item))
+	h2 := uint64(1 + (h1 % uint64(m-1)))
+
+	for i := 0; i < k; i++ {
+		(*indices)[i] = int((h1 + uint64(i)*h2) % uint64(m))
+	}
+
+	return indices
+}
+
+// putHashIndices returns an index slice to the pool.
+func putHashIndices(indices *[]int) {
+	*indices = (*indices)[:0]
+	indexPool.Put(indices)
 }
 
 // HashProvider defines the interface for hash functions used in Bloom filters.

@@ -79,6 +79,64 @@ func (cbf *CountingBloomFilter) Remove(item []byte) {
 	}
 }
 
+// BatchAdd adds multiple items to the Bloom filter efficiently.
+// This is optimized for bulk operations with reduced lock contention.
+// Returns results for each item: success count, failure count, and error messages.
+func (cbf *CountingBloomFilter) BatchAdd(items [][]byte) (successCount, failureCount int, errors []string) {
+	cbf.mu.Lock()
+	defer cbf.mu.Unlock()
+
+	errors = make([]string, len(items))
+	successCount = 0
+	failureCount = 0
+
+	for i, item := range items {
+		indices := getHashIndices(item, cbf.m, cbf.k)
+		hasOverflow := false
+		
+		// First pass: check for overflow
+		for _, idx := range indices {
+			if cbf.counters[idx] >= 255 {
+				hasOverflow = true
+				break
+			}
+		}
+
+		if hasOverflow {
+			errors[i] = ErrCounterOverflow.Error()
+			failureCount++
+		} else {
+			// Second pass: increment counters
+			for _, idx := range indices {
+				cbf.counters[idx]++
+			}
+			successCount++
+			errors[i] = ""
+		}
+	}
+
+	return successCount, failureCount, errors
+}
+
+// BatchRemove removes multiple items from the Bloom filter efficiently.
+func (cbf *CountingBloomFilter) BatchRemove(items [][]byte) int {
+	cbf.mu.Lock()
+	defer cbf.mu.Unlock()
+
+	removedCount := 0
+	for _, item := range items {
+		indices := getHashIndices(item, cbf.m, cbf.k)
+		for _, idx := range indices {
+			if cbf.counters[idx] > 0 {
+				cbf.counters[idx]--
+			}
+		}
+		removedCount++
+	}
+
+	return removedCount
+}
+
 // Contains checks if an item might be in the Bloom filter.
 // Returns true if the item might be present (possible false positive),
 // false if the item is definitely not present.
@@ -93,6 +151,29 @@ func (cbf *CountingBloomFilter) Contains(item []byte) bool {
 		}
 	}
 	return true
+}
+
+// BatchContains checks if multiple items might be in the Bloom filter.
+// This is optimized for bulk queries with reduced lock contention.
+// Returns a slice of bool indicating presence for each item.
+func (cbf *CountingBloomFilter) BatchContains(items [][]byte) []bool {
+	cbf.mu.RLock()
+	defer cbf.mu.RUnlock()
+
+	results := make([]bool, len(items))
+	for i, item := range items {
+		indices := getHashIndices(item, cbf.m, cbf.k)
+		found := true
+		for _, idx := range indices {
+			if cbf.counters[idx] == 0 {
+				found = false
+				break
+			}
+		}
+		results[i] = found
+	}
+
+	return results
 }
 
 // Count returns the approximate count of how many times an item has been added.
