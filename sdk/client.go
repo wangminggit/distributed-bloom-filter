@@ -157,7 +157,6 @@ func (c *Client) AddWithTimeout(key string, timeout time.Duration) error {
 	defer cancel()
 
 	req := &proto.AddRequest{
-		Auth: c.createAuthMetadata("Add"),
 		Item: []byte(key),
 	}
 
@@ -187,7 +186,6 @@ func (c *Client) RemoveWithTimeout(key string, timeout time.Duration) error {
 	defer cancel()
 
 	req := &proto.RemoveRequest{
-		Auth: c.createAuthMetadata("Remove"),
 		Item: []byte(key),
 	}
 
@@ -217,7 +215,6 @@ func (c *Client) ContainsWithTimeout(key string, timeout time.Duration) (bool, e
 	defer cancel()
 
 	req := &proto.ContainsRequest{
-		Auth: c.createAuthMetadata("Contains"),
 		Item: []byte(key),
 	}
 
@@ -253,7 +250,6 @@ func (c *Client) BatchAddWithTimeout(keys []string, timeout time.Duration) error
 	}
 
 	req := &proto.BatchAddRequest{
-		Auth:  c.createAuthMetadata("BatchAdd"),
 		Items: items,
 	}
 
@@ -291,7 +287,6 @@ func (c *Client) BatchContainsWithTimeout(keys []string, timeout time.Duration) 
 	}
 
 	req := &proto.BatchContainsRequest{
-		Auth:  c.createAuthMetadata("BatchContains"),
 		Items: items,
 	}
 
@@ -325,9 +320,7 @@ func (c *Client) GetStatusWithTimeout(timeout time.Duration) (*NodeStatus, error
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	req := &proto.GetStatsRequest{
-		Auth: c.createAuthMetadata("GetStats"),
-	}
+	req := &proto.GetStatsRequest{}
 
 	var status *NodeStatus
 	err := c.executeWithRetry(ctx, func(client proto.DBFServiceClient) error {

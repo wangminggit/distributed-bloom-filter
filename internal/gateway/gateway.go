@@ -157,8 +157,7 @@ func (g *Gateway) handleAdd(w http.ResponseWriter, r *http.Request) {
 
 	// Create gRPC request
 	grpcReq := &proto.AddRequest{
-		Auth:  g.createAuthMetadata("Add"),
-		Item:  []byte(req.Item),
+		Item: []byte(req.Item),
 	}
 
 	// Call gRPC service
@@ -203,8 +202,7 @@ func (g *Gateway) handleRemove(w http.ResponseWriter, r *http.Request) {
 
 	// Create gRPC request
 	grpcReq := &proto.RemoveRequest{
-		Auth:  g.createAuthMetadata("Remove"),
-		Item:  []byte(req.Item),
+		Item: []byte(req.Item),
 	}
 
 	// Call gRPC service
@@ -248,8 +246,7 @@ func (g *Gateway) handleContains(w http.ResponseWriter, r *http.Request) {
 
 	// Create gRPC request
 	grpcReq := &proto.ContainsRequest{
-		Auth:  g.createAuthMetadata("Contains"),
-		Item:  []byte(req.Item),
+		Item: []byte(req.Item),
 	}
 
 	// Call gRPC service
@@ -295,7 +292,6 @@ func (g *Gateway) handleBatchAdd(w http.ResponseWriter, r *http.Request) {
 
 	// Create gRPC request
 	grpcReq := &proto.BatchAddRequest{
-		Auth:  g.createAuthMetadata("BatchAdd"),
 		Items: items,
 	}
 
@@ -348,7 +344,6 @@ func (g *Gateway) handleBatchContains(w http.ResponseWriter, r *http.Request) {
 
 	// Create gRPC request
 	grpcReq := &proto.BatchContainsRequest{
-		Auth:  g.createAuthMetadata("BatchContains"),
 		Items: items,
 	}
 
@@ -385,9 +380,7 @@ func (g *Gateway) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create gRPC request
-	grpcReq := &proto.GetStatsRequest{
-		Auth: g.createAuthMetadata("GetStats"),
-	}
+	grpcReq := &proto.GetStatsRequest{}
 
 	// Call gRPC service
 	resp, err := g.grpcClient.GetStats(context.Background(), grpcReq)
@@ -422,9 +415,7 @@ func (g *Gateway) handleCluster(w http.ResponseWriter, r *http.Request) {
 
 	// For now, return the same info as status
 	// In a full implementation, this would return cluster topology
-	grpcReq := &proto.GetStatsRequest{
-		Auth: g.createAuthMetadata("GetStats"),
-	}
+	grpcReq := &proto.GetStatsRequest{}
 
 	resp, err := g.grpcClient.GetStats(context.Background(), grpcReq)
 	if err != nil {
