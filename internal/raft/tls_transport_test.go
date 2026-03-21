@@ -12,7 +12,6 @@ import (
 func TestTLSStreamLayer(t *testing.T) {
 	t.Skip("Manual test - requires valid certificates. See deploy/RAFT-TLS-GUIDE.md for testing instructions.")
 	
-	// Skip if certificates don't exist (CI environment)
 	caFile := filepath.Join("..", "..", "configs", "tls", "ca-cert.pem")
 	certFile := filepath.Join("..", "..", "configs", "tls", "server-cert.pem")
 	keyFile := filepath.Join("..", "..", "configs", "tls", "server-key.pem")
@@ -21,17 +20,15 @@ func TestTLSStreamLayer(t *testing.T) {
 		t.Skip("TLS certificates not found, skipping test")
 	}
 
-	// Create TLS config
 	tlsConfig := &TLSConfig{
-		CAFile:   caFile,
-		CertFile: certFile,
-		KeyFile:  keyFile,
+		CAFile:     caFile,
+		CertFile:   certFile,
+		KeyFile:    keyFile,
 		ServerName: "localhost",
 		MinVersion: tls.VersionTLS12,
 	}
 
-	// Create listener
-	bindAddr := "127.0.0.1:0" // Use any available port
+	bindAddr := "127.0.0.1:0"
 	advertise, _ := net.ResolveTCPAddr("tcp", bindAddr)
 
 	streamLayer, err := NewTLSStreamLayer(bindAddr, advertise, tlsConfig)
@@ -40,7 +37,6 @@ func TestTLSStreamLayer(t *testing.T) {
 	}
 	defer streamLayer.Close()
 
-	// Verify listener is working
 	if streamLayer.Addr() == nil {
 		t.Fatal("Stream layer address is nil")
 	}
@@ -52,7 +48,6 @@ func TestTLSStreamLayer(t *testing.T) {
 func TestTLSTransportCreation(t *testing.T) {
 	t.Skip("Manual test - requires valid certificates. See deploy/RAFT-TLS-GUIDE.md for testing instructions.")
 	
-	// Skip if certificates don't exist
 	caFile := filepath.Join("..", "..", "configs", "tls", "ca-cert.pem")
 	certFile := filepath.Join("..", "..", "configs", "tls", "server-cert.pem")
 	keyFile := filepath.Join("..", "..", "configs", "tls", "server-key.pem")
@@ -67,7 +62,6 @@ func TestTLSTransportCreation(t *testing.T) {
 	config.TLSConfig.CertFile = certFile
 	config.TLSConfig.KeyFile = keyFile
 
-	// Verify config is set correctly
 	if !config.TLSEnabled {
 		t.Error("TLS should be enabled")
 	}
@@ -88,9 +82,9 @@ func TestTLSConfigValidation(t *testing.T) {
 		{
 			name: "valid config",
 			config: &TLSRaftConfig{
-				CAFile:   "ca.pem",
-				CertFile: "cert.pem",
-				KeyFile:  "key.pem",
+				CAFile:     "ca.pem",
+				CertFile:   "cert.pem",
+				KeyFile:    "key.pem",
 				ServerName: "localhost",
 			},
 			wantError: false,
@@ -98,8 +92,8 @@ func TestTLSConfigValidation(t *testing.T) {
 		{
 			name: "missing cert file",
 			config: &TLSRaftConfig{
-				CAFile:   "ca.pem",
-				KeyFile:  "key.pem",
+				CAFile:  "ca.pem",
+				KeyFile: "key.pem",
 			},
 			wantError: true,
 		},
@@ -111,20 +105,26 @@ func TestTLSConfigValidation(t *testing.T) {
 			},
 			wantError: true,
 		},
+		{
+			name: "missing ca file",
+			config: &TLSRaftConfig{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+			},
+			wantError: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Basic validation
-			if tt.config.CertFile == "" || tt.config.KeyFile == "" {
-				if !tt.wantError {
+			hasError := tt.config.CertFile == "" || tt.config.KeyFile == "" || tt.config.CAFile == ""
+			
+			if hasError != tt.wantError {
+				if tt.wantError {
+					t.Error("Expected validation to fail but it passed")
+				} else {
 					t.Error("Expected validation to pass but it failed")
 				}
-				return
-			}
-
-			if tt.wantError {
-				t.Error("Expected validation to fail but it passed")
 			}
 		})
 	}
@@ -155,4 +155,60 @@ func TestDefaultTLSConfig(t *testing.T) {
 	}
 
 	t.Log("Default TLS config is secure")
+}
+
+// TestTLSConfigEdgeCases tests edge cases in TLS config
+func TestTLSConfigEdgeCases(t *testing.T) {
+	t.Run("EmptyServerName", func(t *testing.T) {
+		config := &TLSRaftConfig{
+			CAFile:     "ca.pem",
+			CertFile:   "cert.pem",
+			KeyFile:    "key.pem",
+			ServerName: "",
+		}
+		
+		if config.ServerName != "" {
+			t.Error("ServerName should be empty")
+		}
+	})
+
+	t.Run("CustomMinVersion", func(t *testing.T) {
+		config := &TLSRaftConfig{
+			CAFile:     "ca.pem",
+			CertFile:   "cert.pem",
+			KeyFile:    "key.pem",
+			ServerName: "localhost",
+			MinVersion: tls.VersionTLS13,
+		}
+		
+		if config.MinVersion != tls.VersionTLS13 {
+			t.Errorf("Expected TLS 1.3, got %d", config.MinVersion)
+		}
+	})
+}
+
+// TestTLSTransportAddr tests transport address resolution
+func TestTLSTransportAddr(t *testing.T) {
+	bindAddr := "127.0.0.1:0"
+	advertiseAddr := "127.0.0.1:18080"
+	
+	bind, err := net.ResolveTCPAddr("tcp", bindAddr)
+	if err != nil {
+		t.Fatalf("Failed to resolve bind addr: %v", err)
+	}
+	
+	advertise, err := net.ResolveTCPAddr("tcp", advertiseAddr)
+	if err != nil {
+		t.Fatalf("Failed to resolve advertise addr: %v", err)
+	}
+	
+	if bind == nil {
+		t.Fatal("Bind address should not be nil")
+	}
+	
+	if advertise == nil {
+		t.Fatal("Advertise address should not be nil")
+	}
+	
+	t.Logf("Bind: %s, Advertise: %s", bind.String(), advertise.String())
 }

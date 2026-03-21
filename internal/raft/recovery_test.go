@@ -13,8 +13,10 @@ import (
 	"github.com/wangminggit/distributed-bloom-filter/pkg/bloom"
 )
 
-// TestFSMApplyWALIntegration tests that FSM Apply operations are written to WAL.
-func TestFSMApplyWALIntegration(t *testing.T) {
+// setupFSM creates an isolated FSM for testing
+func setupFSM(t *testing.T) (*BloomFSM, string) {
+	t.Helper()
+	
 	tempDir := t.TempDir()
 	walDir := filepath.Join(tempDir, "wal")
 	
@@ -28,9 +30,15 @@ func TestFSMApplyWALIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create FSM: %v", err)
 	}
+	
+	return fsm, walDir
+}
+
+// TestFSMApplyWALIntegration tests that FSM Apply operations are written to WAL.
+func TestFSMApplyWALIntegration(t *testing.T) {
+	fsm, walDir := setupFSM(t)
 	defer fsm.Close()
 	
-	// Use base64 encoded item (matching Command structure)
 	item := base64.StdEncoding.EncodeToString([]byte("test-item-1"))
 	addCmd := []byte(`{"type":"add","item":"` + item + `","timestamp":"` + time.Now().Format(time.RFC3339) + `"}`)
 	raftLog := &raft.Log{
@@ -44,7 +52,7 @@ func TestFSMApplyWALIntegration(t *testing.T) {
 		t.Errorf("Apply failed: %v", result)
 	}
 	
-	if !bloomFilter.Contains([]byte("test-item-1")) {
+	if !fsm.GetBloomFilter().Contains([]byte("test-item-1")) {
 		t.Error("Bloom filter should contain test-item-1 after Apply")
 	}
 	
@@ -78,10 +86,10 @@ func TestFSMSnapshotEncryption(t *testing.T) {
 	
 	snapshotData := &SnapshotData{
 		BloomFilter: bloomFilter.Serialize(),
-		Metadata: map[string]interface{}{"version": "1.0"},
-		Timestamp: time.Now(),
-		Index:     100,
-		Term:      5,
+		Metadata:    map[string]interface{}{"version": "1.0"},
+		Timestamp:   time.Now(),
+		Index:       100,
+		Term:        5,
 	}
 	
 	data, err := json.Marshal(snapshotData)
@@ -304,4 +312,53 @@ func TestWALReplayAfterCrash(t *testing.T) {
 	}
 	
 	t.Logf("Successfully replayed %d WAL operations", len(records))
+}
+
+// TestSnapshotManagerIsolation tests that each test gets isolated snapshot manager
+func TestSnapshotManagerIsolation(t *testing.T) {
+	tempDir := t.TempDir()
+	snapshotDir := filepath.Join(tempDir, "snapshots")
+	
+	bloomFilter := bloom.NewCountingBloomFilter(1000, 3)
+	encryptor, err := wal.NewWALEncryptor("")
+	if err != nil {
+		t.Fatalf("Failed to create WAL encryptor: %v", err)
+	}
+	
+	sm := NewSnapshotManagerWithEncryption(bloomFilter, encryptor, snapshotDir)
+	sm.lastSnapshotIndex = 500
+	sm.lastSnapshotTerm = 25
+	
+	snapshotData := &SnapshotData{
+		BloomFilter: bloomFilter.Serialize(),
+		Metadata:    map[string]interface{}{"test": "isolation"},
+		Timestamp:   time.Now(),
+		Index:       500,
+		Term:        25,
+	}
+	
+	data, err := json.Marshal(snapshotData)
+	if err != nil {
+		t.Fatalf("Failed to marshal snapshot data: %v", err)
+	}
+	
+	if err := sm.SaveSnapshot(data); err != nil {
+		t.Fatalf("Failed to save snapshot: %v", err)
+	}
+	
+	loadedData, err := sm.LoadSnapshot()
+	if err != nil {
+		t.Fatalf("Failed to load snapshot: %v", err)
+	}
+	
+	var loaded SnapshotData
+	if err := json.Unmarshal(loadedData, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal loaded data: %v", err)
+	}
+	
+	if loaded.Metadata["test"] != "isolation" {
+		t.Error("Snapshot metadata should match")
+	}
+	
+	t.Log("Snapshot manager isolation test passed")
 }
