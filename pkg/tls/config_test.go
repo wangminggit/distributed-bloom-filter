@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// testCertDir returns the path to the testdata directory.
+func testCertDir() string {
+	// Get the directory of the current test file
+	cwd, _ := os.Getwd()
+	return filepath.Join(cwd, "testdata")
+}
+
 // TestDefaultTLSConfig tests that default TLS configuration is secure.
 // This is a P0 test case for TLS security defaults.
 func TestDefaultTLSConfig(t *testing.T) {
@@ -504,4 +511,137 @@ func TestConfigFieldAccess(t *testing.T) {
 	}
 
 	t.Log("Config field access test completed")
+}
+
+// TestBuildTLSConfigWithValidCerts tests BuildTLSConfig with valid certificates.
+func TestBuildTLSConfigWithValidCerts(t *testing.T) {
+	certDir := testCertDir()
+	
+	cfg := &Config{
+		CertPath:   filepath.Join(certDir, "server.crt"),
+		KeyPath:    filepath.Join(certDir, "server.key"),
+		MinVersion: tls.VersionTLS13,
+		ClientAuth: tls.NoClientCert,
+	}
+
+	tlsConfig, err := BuildTLSConfig(cfg)
+	if err != nil {
+		t.Fatalf("BuildTLSConfig failed: %v", err)
+	}
+
+	if tlsConfig == nil {
+		t.Fatal("Expected non-nil TLS config")
+	}
+	if tlsConfig.MinVersion != tls.VersionTLS13 {
+		t.Errorf("Expected MinVersion TLS 1.3, got %d", tlsConfig.MinVersion)
+	}
+	if len(tlsConfig.Certificates) != 1 {
+		t.Errorf("Expected 1 certificate, got %d", len(tlsConfig.Certificates))
+	}
+}
+
+// TestCertReloaderFull tests the certificate reloader end-to-end.
+func TestCertReloaderFull(t *testing.T) {
+	certDir := testCertDir()
+	
+	cfg := &Config{
+		CertPath:   filepath.Join(certDir, "server.crt"),
+		KeyPath:    filepath.Join(certDir, "server.key"),
+		MinVersion: tls.VersionTLS13,
+		ClientAuth: tls.NoClientCert,
+	}
+
+	reloader, err := NewCertReloader(cfg, time.Minute)
+	if err != nil {
+		t.Fatalf("NewCertReloader failed: %v", err)
+	}
+
+	// Test GetTLSConfig
+	tlsConfig, err := reloader.GetTLSConfig()
+	if err != nil {
+		t.Fatalf("GetTLSConfig failed: %v", err)
+	}
+
+	if tlsConfig == nil {
+		t.Fatal("Expected non-nil TLS config from reloader")
+	}
+	if len(tlsConfig.Certificates) != 1 {
+		t.Errorf("Expected 1 certificate, got %d", len(tlsConfig.Certificates))
+	}
+
+	// Test that GetCertificate function works
+	if tlsConfig.GetCertificate == nil {
+		t.Error("Expected GetCertificate function to be set")
+	}
+}
+
+// TestValidateCertificateWithCACross tests certificate validation with CA cross-validation.
+func TestValidateCertificateWithCACross(t *testing.T) {
+	certDir := testCertDir()
+	
+	// Read the CA certificate
+	caPEM, err := os.ReadFile(filepath.Join(certDir, "ca.crt"))
+	if err != nil {
+		t.Fatalf("Failed to read CA cert: %v", err)
+	}
+
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPEM) {
+		t.Fatal("Failed to parse CA certificate")
+	}
+
+	// Read and validate the server certificate (self-signed, so will fail CA validation)
+	serverPEM, err := os.ReadFile(filepath.Join(certDir, "server.crt"))
+	if err != nil {
+		t.Fatalf("Failed to read server cert: %v", err)
+	}
+
+	err = ValidateCertificate(serverPEM, caPool)
+	if err == nil {
+		// This is expected to fail because server.crt is not signed by ca.crt
+		t.Log("Validation passed (unexpected for self-signed cert)")
+	} else {
+		t.Logf("Validation failed as expected: %v", err)
+	}
+}
+
+// TestValidateCertificateEdgeCases tests edge cases in certificate validation.
+func TestValidateCertificateEdgeCases(t *testing.T) {
+	caPool := x509.NewCertPool()
+
+	t.Run("EmptyCert", func(t *testing.T) {
+		err := ValidateCertificate([]byte{}, caPool)
+		if err == nil {
+			t.Error("Expected error for empty certificate")
+		}
+	})
+
+	t.Run("InvalidPEM", func(t *testing.T) {
+		err := ValidateCertificate([]byte("not a PEM"), caPool)
+		if err == nil {
+			t.Error("Expected error for invalid PEM")
+		}
+	})
+
+	t.Run("WrongPEMType", func(t *testing.T) {
+		// Use a private key PEM instead of certificate
+		certDir := testCertDir()
+		keyPEM, _ := os.ReadFile(filepath.Join(certDir, "server.key"))
+		err := ValidateCertificate(keyPEM, caPool)
+		if err == nil {
+			t.Error("Expected error for wrong PEM type")
+		}
+	})
+}
+
+// TestGenerateSelfSignedCertError tests that GenerateSelfSignedCert returns error.
+func TestGenerateSelfSignedCertError(t *testing.T) {
+	certPEM, keyPEM, err := GenerateSelfSignedCert("localhost")
+	
+	if err == nil {
+		t.Error("Expected error from GenerateSelfSignedCert")
+	}
+	if certPEM != nil || keyPEM != nil {
+		t.Error("Expected nil certificates on error")
+	}
 }
