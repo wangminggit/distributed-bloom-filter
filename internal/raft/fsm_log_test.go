@@ -167,9 +167,10 @@ func TestBloomFSM_Restore(t *testing.T) {
 		t.Fatalf("Restore failed: %v", err)
 	}
 
-	// Verify data was restored
+	// Verify data was restored using FSM's bloom filter
+	restoredBF := fsm2.GetBloomFilter()
 	for i := 0; i < 10; i++ {
-		if !newBF.Contains([]byte{byte(i)}) {
+		if !restoredBF.Contains([]byte{byte(i)}) {
 			t.Errorf("Item %d should exist after restore", i)
 		}
 	}
